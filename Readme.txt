@@ -23,12 +23,15 @@ Further notes
 =============
 
 Interleaved blur kernel estimation is activated by calling the
-Interleaved method of the Dataset class as demonstrated in
+Interleaved method of the Dataset object as demonstrated in
 Deblur.cpp. Note that the optimal number of cascade levels differs for
 interleaved and standard evaluation.
 
 The models folder contains both the interleaved and standard learned
 RTF models used in the paper.
+
+The file kernels.mat contains the recorded LED trajectories of human
+camera shakes as explained in the paper.
 
 
 ----------------------------------------------------------------------
