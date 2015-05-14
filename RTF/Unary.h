@@ -1,11 +1,16 @@
-// File:   Unary.h
-// Author: t-jejan
-//
-// Implements all functionality that is specific to unary factors. This file only contains
-// implementation details that usually need not be accessed by a user.
-//
-#ifndef _H_UNARY_H_
-#define _H_UNARY_H_
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Unary.h
+ * Implements all functionality related to unary factors in a regression tree field.
+ *
+ */
+
+#ifndef H_RTF_UNARY_H
+#define H_RTF_UNARY_H
 
 #include <vector>
 #include <cstring>
@@ -30,7 +35,7 @@ namespace Unary
         typedef Compute::FactorTypeBase<TFeature, TLabel, TPrior, TBasis> Base;
         typedef typename TLabel::ValueType                  TValue;
         static const size_t                                 VarDim   = TLabel::Size;
-        static const size_t				     				BasisDim = TBasis::Size;
+        static const size_t                 BasisDim = TBasis::Size;
         typedef Eigen::Matrix<TValue, VarDim, 1>            TVector;
         typedef Eigen::Matrix<TValue, Eigen::Dynamic, 1>    TSolution;
         typedef Eigen::Matrix<TValue, VarDim, VarDim>       TMatrix;
@@ -71,50 +76,6 @@ namespace Unary
                 w->GetGl() += (scale * bq * muLossGradient(i)) * b.transpose();
                 w->GetGq() += (scale * bq * muLossGradient(i)) * muPrediction(i).transpose();
             }
-
-#if 0
-            void AccumulateGradient(const TSystemVectorCRef& yRef, const std::vector<TSolution>& muPrediction, const std::vector<TSolution>& muLossGradient,
-                                    TValue normC, TWeights* w) const
-            {
-                const auto N = muPrediction.size()-1;
-                const auto cx = yRef.Width(), cy = yRef.Height();
-                const auto scale = 1.0/normC;
-
-                for( int k = N-1; k >=0; --k )
-                {
-                    const TSystemVectorCRef muPrevPredictionRef(cx, cy, muPrediction[k]);
-                    const TSystemVectorCRef muPredictionRef(cx, cy, muPrediction[k+1]);
-                    const TSystemVectorCRef muLossGradientRef(cx, cy, muLossGradient[k+1]);
-
-                    const TMatrix diag_i = (muLossGradientRef(i).array() * (muPredictionRef(i) - muPrevPredictionRef(i)).array()).matrix().asDiagonal();
-
-                    w->GetGl() += (scale * bq) * (muLossGradientRef(i) * b.transpose());
-                    w->GetGq() += (scale * bq) * (muLossGradientRef(i) * muPrevPredictionRef(i).transpose() + diag_i);
-                }
-            }
-#endif
-
-#if 0
-            void AccumulateGradient(const TSystemVectorCRef& yRef, const std::vector<TSolution>& muPrediction, const std::vector<TSolution>& muLossGradient,
-                                    TValue normC, TWeights* w) const
-            {
-                const auto N = muPrediction.size()-1;
-                const auto cx = yRef.Width(), cy = yRef.Height();
-                const auto scale = 1.0/normC;
-
-                for( int k = N-1; k >=0; --k )
-                {
-                    const TSystemVectorCRef muPrevPredictionRef(cx, cy, muPrediction[k]);
-                    const TSystemVectorCRef muPredictionRef(cx, cy, muPrediction[k+1]);
-                    const TSystemVectorCRef muLossGradientRef(cx, cy, muLossGradient[k+1]);
-
-                    const auto diag_i = muLossGradientRef(i) * (muPredictionRef(i) - muPrevPredictionRef(i)).transpose();
-
-                    w->GetGl() += (scale * bq) * (muLossGradientRef(i) * b.transpose());
-                    w->GetGq() += (scale * bq) * (muLossGradientRef(i) * muPrevPredictionRef(i).transpose() + diag_i);
-                }
-            }
-#endif
 
             void AccumulateGradient(const TSystemVectorCRef& yRef, const std::vector<TSolution>& muPrediction, const std::vector<TSolution>& muLossGradient,
                                     TValue normC, TWeights* w) const
@@ -409,4 +370,4 @@ namespace Unary
     };
 }
 
-#endif // _H_UNARY_H_
+#endif // H_RTF_UNARY_H

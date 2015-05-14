@@ -1,23 +1,19 @@
-#pragma once
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Bagged.h
+ * Implements a (possibly multi-dimensional) image class.
+ *
+ */
 
-#pragma managed(push, off)
+#ifndef H_RTF_IMAGE_H
+#define H_RTF_IMAGE_H
 
-#define RTF_NO_WIN32
-#ifndef RTF_NO_WIN32
-#include <atlbase.h>
-#include <atltypes.h>
-#endif
-#include <omp.h>
 #include <memory>
 #include <cstring>
-
-#ifdef max
-#undef max
-#endif
-
-#ifdef min
-#undef min
-#endif
 
 class Image
 {
@@ -120,16 +116,7 @@ public:
     {
         return m_nHeight;
     }
-#ifndef RTF_NO_WIN32
-    CRect Rect() const
-    {
-        return CRect(0, 0, Width(), Height());
-    }
-    CSize Size() const
-    {
-        return CSize(Width(), Height());
-    }
-#endif
+
     size_t ElementBytes() const
     {
         return m_nElementBytes;
@@ -381,172 +368,4 @@ protected:
     std::shared_ptr<const ImageT<T, nBands>> m_p;
 };
 
-#ifndef RTF_NO_WIN32
-namespace Arithmetic
-{
-
-    template <typename TDst, typename TLhs, typename TOp>
-    void UnaryPointwiseOperator(ImageT<TDst>& dst, const ImageT<TLhs>& lhs, TOp& op, const CRect* prDst = 0, const CPoint* pptLhs = 0, TLhs tExt = (TLhs)0)
-    {
-        CRect rDArg(prDst ? *prDst : dst.Rect());
-        CPoint ptLArg(pptLhs ? *pptLhs : CPoint(0, 0));
-        CRect rDst(rDArg & dst.Rect());
-        CSize szLOffset(ptLArg - rDArg.TopLeft());
-        CRect rLWhole(lhs.Rect());
-        TLhs L;
-        const TLhs* pL;
-        TDst* pD;
-        CRect rCheck(rDst + szLOffset);
-
-        if((rCheck & rLWhole) == rCheck)
-        {
-            // Loop without needing to check bounds
-            #pragma omp parallel for
-            for(int y = rDst.top; y < rDst.bottom; y++)
-            {
-                pL = lhs.Ptr(szLOffset.cx, szLOffset.cy + y);
-                pD = dst.Ptr(y);
-
-                for(int x = rDst.left; x < rDst.right; x++)
-                    pD[x] = op(pL[x]);
-            }
-        }
-        else
-        {
-            // Loop with a bounds check
-            #pragma omp parallel for
-            for(int y = rDst.top; y < rDst.bottom; y++)
-            {
-                pL = lhs.Ptr(szLOffset.cx, szLOffset.cy + y);
-                pD = dst.Ptr(y);
-
-                for(int x = rDst.left; x < rDst.right; x++)
-                {
-                    L = rLWhole.PtInRect(CPoint(x, y) + szLOffset) ? pL[x] : tExt;
-                    pD[x] = op(L);
-                }
-            }
-        }
-    }
-
-    template <typename TDst, typename TLhs, typename TRhs, typename TOp>
-    inline void BinaryPointwiseOperator(
-        ImageT<TDst>& dst,
-        const ImageT<TLhs>& lhs,
-        const ImageT<TRhs>& rhs,
-        TOp& op,
-        const CRect* prDst = NULL,
-        const CPoint* pptLhs = NULL,
-        const CPoint* pptRhs = NULL
-    )
-    {
-        CRect rDArg(prDst ? *prDst : dst.Rect());
-        CPoint ptLArg(pptLhs ? *pptLhs : CPoint(0, 0));
-        CPoint ptRArg(pptRhs ? *pptRhs : CPoint(0, 0));
-        CRect rDst(rDArg & dst.Rect());
-        CSize szLOffset(ptLArg - rDArg.TopLeft());
-        CSize szROffset(ptRArg - rDArg.TopLeft());
-        CRect rLWhole(lhs.Rect());
-        CRect rRWhole(rhs.Rect());
-        TLhs L;
-        TRhs R;
-        const TLhs* pL;
-        const TRhs* pR;
-        TDst* pD;
-        CRect rCheckL(rDst + szLOffset);
-        CRect rCheckR(rDst + szROffset);
-
-        if(((rCheckL & rLWhole) == rCheckL) && ((rCheckR & rRWhole) == rCheckR))
-        {
-            #pragma omp parallel for
-
-            for(int y = rDst.top; y < rDst.bottom; y++)
-            {
-                pD = dst.Ptr(y);
-                pL = lhs.Ptr(szLOffset.cx, y + szLOffset.cy);
-                pR = rhs.Ptr(szROffset.cx, y + szROffset.cy);
-
-                for(int x = rDst.left; x < rDst.right; x++)
-                    pD[x] = op(pL[x], pR[x]);
-            }
-        }
-        else
-        {
-            #pragma omp parallel for
-
-            for(int y = rDst.top; y < rDst.bottom; y++)
-            {
-                pD = dst.Ptr(y);
-                pL = lhs.Ptr(szLOffset.cx, y + szLOffset.cy);
-                pR = rhs.Ptr(szROffset.cx, y + szROffset.cy);
-
-                for(int x = rDst.left; x < rDst.right; x++)
-                {
-                    L = rLWhole.PtInRect(CPoint(x, y) + szLOffset) ? pL[x] : (TLhs)0;
-                    R = rRWhole.PtInRect(CPoint(x, y) + szROffset) ? pR[x] : (TRhs)0;
-                    pD[x] = op(L, R);
-                }
-            }
-        }
-    }
-
-    template <typename TDst, typename TIn1, typename TIn2, typename TIn3, typename TOp>
-    inline void TertiaryPointwiseOperator(
-        ImageT<TDst>& dst,
-        const ImageT<TIn1>& in1,
-        const ImageT<TIn2>& in2,
-        const ImageT<TIn3>& in3,
-        TOp& op
-    )
-    {
-        CRect rDst(dst.Rect());
-        rDst &= in1.Rect();
-        rDst &= in2.Rect();
-        rDst &= in3.Rect();
-        #pragma omp parallel for
-
-        for(int y = rDst.top; y < rDst.bottom; y++)
-        {
-            TDst* pD = dst.Ptr(y);
-            const TIn1* p1 = in1.Ptr(y);
-            const TIn2* p2 = in2.Ptr(y);
-            const TIn3* p3 = in3.Ptr(y);
-
-            for(int x = rDst.left; x < rDst.right; x++)
-                pD[x] = op(p1[x], p2[x], p3[x]);
-        }
-    }
-
-    template <typename TDst, typename TIn1, typename TIn2, typename TIn3, typename TIn4, typename TOp>
-    inline void QuaternaryPointwiseOperator(
-        ImageT<TDst>& dst,
-        const ImageT<TIn1>& in1,
-        const ImageT<TIn2>& in2,
-        const ImageT<TIn3>& in3,
-        const ImageT<TIn4>& in4,
-        TOp& op
-    )
-    {
-        CRect rDst(dst.Rect());
-        rDst &= in1.Rect();
-        rDst &= in2.Rect();
-        rDst &= in3.Rect();
-        rDst &= in4.Rect();
-        #pragma omp parallel for
-
-        for(int y = rDst.top; y < rDst.bottom; y++)
-        {
-            TDst* pD = dst.Ptr(y);
-            const TIn1* p1 = in1.Ptr(y);
-            const TIn2* p2 = in2.Ptr(y);
-            const TIn3* p3 = in3.Ptr(y);
-            const TIn4* p4 = in4.Ptr(y);
-
-            for(int x = rDst.left; x < rDst.right; x++)
-                pD[x] = op(p1[x], p2[x], p3[x], p4[x]);
-        }
-    }
-
-
-}
-#endif
+#endif // H_RTF_IMAGE_H

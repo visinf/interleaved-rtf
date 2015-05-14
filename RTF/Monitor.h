@@ -1,10 +1,16 @@
-// File:   Monitor.h
-// Author: t-jejan
-//
-// Implements functionality related to printing of debug/status information.
-//
-#ifndef _H_MONITOR_H_
-#define _H_MONITOR_H_
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Basic.h
+ * Implements functionality related to printing of debug/status information.
+ *
+ */
+
+#ifndef H_RTF_MONITOR_H
+#define H_RTF_MONITOR_H
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -70,4 +76,4 @@ namespace Monitor
     };
 }
 
-#endif // _H_MONITOR_H_
+#endif // H_RTF_MONITOR_H

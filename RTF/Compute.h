@@ -1,14 +1,17 @@
-// File:   Compute.h
-// Author: t-jejan
-//
-// Implements several of the core routines related to pseudolikelihood estimation of the model
-// parameters and solving of the sparse linear system at test time.
-//
-// This file does not contain any public API functions, so you will only have to touch it if
-// you want to extend the functionality of the library.
-//
-#ifndef _H_COMPUTE_H_
-#define _H_COMPUTE_H_
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Compute.h
+ * Implements several core internal routines for estimating the model parameters and
+ * setting up the sparse linear system of the inference problem.
+ *
+ */
+
+#ifndef H_RTF_COMPUTE_H
+#define H_RTF_COMPUTE_H
 
 #include <Eigen/StdVector>
 
@@ -75,9 +78,7 @@ namespace Compute
         }
 
         Weights(TValue v) : Wl(TVarBasisMatrix::Zero()), Wq(-v*TVarVarMatrix::Identity()), Gl(TVarBasisMatrix::Zero()), Gq(TVarVarMatrix::Zero())
-//		Weights(TValue v) : Wl(TVarBasisMatrix::Zero()), Wq(-TVarVarMatrix::Identity()), Gl(TVarBasisMatrix::Zero()), Gq(TVarVarMatrix::Zero())
         {
-            //std::cerr << "v: " << v << std::endl;
 #ifdef _OPENMP
             dolock = false;
 #endif
@@ -169,8 +170,6 @@ namespace Compute
             TVarBasisMatrix Al;
             TVarVarMatrix Aq;
             LoadCoefficients(&Al, &Aq, as);
-            //std::cerr << "Unprojected: " << std::endl;
-            //std::cerr << Aq << std::endl;
             auto B = (Aq + Aq.transpose()) / TValue(2.0);
             Eigen::SelfAdjointEigenSolver<TVarVarMatrix> solver(B);
             auto Z        = solver.eigenvectors();
@@ -186,8 +185,6 @@ namespace Compute
 
             TVarVarMatrix X = (Z * lambda.asDiagonal() * Z.transpose());
             TValue * ret    = StoreCoefficients(as, &Al, &X);
-            //std::cerr << "Projected: " << std::endl;
-            //std::cerr << X << std::endl;
             return ret;
         }
 
@@ -235,8 +232,6 @@ namespace Compute
         const TValue* SetWeights(const TValue *ws)
         {
             const auto ret = LoadCoefficients(&Wl, &Wq, ws);
-//			std::cerr << Wq << std::endl;
-//			std::cerr << std::endl;
             return ret;
         }
 
@@ -258,10 +253,6 @@ namespace Compute
                 Gq += Gqs[i];
 #endif
             auto ret = StoreCoefficients(gs, &Gl, &Gq);
-//			std::cerr << Gq << std::endl;
-//			std::cerr << std::endl;
-//			std::cerr << Gl << std::endl;
-//			std::cerr << std::endl;
             return ret;
         }
 
@@ -374,7 +365,7 @@ namespace Compute
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
     };
 
-
+    // Forward declarations
     template<typename TTraits> class Subgraph;
 
     template<typename TTraits, bool Parallel>
@@ -449,20 +440,9 @@ namespace Compute
             return flatWeights;
         }
 
-#if 0
-        TValue* Project(TValue *flatWeights) const
-        {
-            for(auto it = tree.begin_leaf(); it != tree.end_leaf(); ++it)
-                flatWeights = it->data.Project(flatWeights, smallestEigenvalue, largestEigenvalue);
-
-            return flatWeights;
-        }
-#endif
         // This method is one of the hotspots of training with PQN; the SPG routine
         // in the inner loop calls Project() very frequently while minimizing the
         // quadratic approximation subject to the parameter constraints.
-        // Hence we parallelize it here, which makes the code slightly less readable.
-        // The semantics are equivalent to the above (unoptimized) implementation.
         TValue* Project(TValue *flatWeights) const
         {
             if( fixParameters )
@@ -767,14 +747,6 @@ namespace Compute
             return ComputeMeanParameters(theta_j, Theta_j, mu_j, Sigma_j, logDetC_j);
         }
 
-#if 0
-        void SampleMeanParameters(TVector &y_j, TMatrix  &yyT_j) const
-        {
-            y_j   = Utility::LabelToVector(y(j.x, j.y));
-            yyT_j = y_j * y_j.transpose();
-        }
-#endif
-
         void ComputeMeanParameters(TVector &theta_j, TMatrix &Theta_j,
                                    TVector &mu_j, TMatrix &Sigma_j, TValue& logDetC_j) const
         {
@@ -846,7 +818,7 @@ namespace Compute
             typename TFactorType::TWeights w;
             T.ForEachConditionedInstance(j, prep, y, &w, [&](const TConditionedFactor & factor)
             {
-                w.ClearGradient();
+                w = typename TFactorType::TWeights();
                 factor.AccumulateGradient(mu_j, Sigma_j, numSubgraphs);
                 op(w.Gl, w.Gq);
             });
@@ -895,36 +867,12 @@ namespace Compute
         }
     };
 
-#if 0
-    template<typename TTraits>
-    void
-    ForwardGaussJacobi(typename Classify::LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type& system, size_t N,
-                       std::vector<Eigen::Matrix<typename TTraits::ValueType, Eigen::Dynamic, 1>> &y)
-    {
-        typedef Eigen::Matrix<typename TTraits::ValueType, Eigen::Dynamic, 1> TVector;
-        const auto Dim = system.Dimensions();
+    // Back-propagation style training, where the gradient is traced back over a finite number
+    // of iterations of an inference algorithm.
+    // We implement here the classic (blocked) Gaussi-Jacobi iterations, which tend to converge
+    // very rapidly if the system matrix is diagonally dominant.
 
-        TVector b(Dim), Ay(Dim), d(Dim);
-        system.ProvideRightHandSide(b);
-        system.ProvideInverseDiagonal(d);
-        const auto Dinv = d.asDiagonal();
-
-        y.resize(N+1);
-        y[0] = TVector::Zero(Dim);
-
-        for( size_t k = 0; k < N; ++ k )
-        {
-            system.MultiplySystemMatrixBy(Ay, y[k]);
-            y[k+1] = y[k] - Dinv * (Ay - b);
-            std::cerr << "GJ: ForwardIt " << k << ", ||r|| = " << (Ay - b).norm() << std::endl;
-        }
-        system.MultiplySystemMatrixBy(Ay, y[N]);
-        std::cerr << "GJ: ForwardIt " << N << ", ||r|| = " << (Ay - b).norm() << std::endl;
-        return;
-    }
-#endif
-
-
+    // Forward inference pass which keeps a tape of the relevant statistics for the gradient.
     template<typename TTraits>
     void
     ForwardGaussJacobi(typename Classify::LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type& system, size_t N,
@@ -947,36 +895,12 @@ namespace Compute
         {
             system.MultiplySystemMatrixBy(Ay, y[k]);
             y[k+1] = y[k] - Minimization::ScaleByBlockDiagonal<typename TTraits::ValueType, TTraits::UnaryGroundLabel::Size>(D, Ay - b);
-            std::cerr << "GJ: ForwardIt " << k << ", ||r|| = " << (Ay - b).norm() << std::endl;
         }
         system.MultiplySystemMatrixBy(Ay, y[N]);
-        std::cerr << "GJ: ForwardIt " << N << ", ||r|| = " << (Ay - b).norm() << std::endl;
         return;
     }
 
-#if 0
-    template<typename TTraits>
-    Eigen::Matrix<typename TTraits::ValueType, Eigen::Dynamic, 1>
-    ForwardGaussJacobi(typename Classify::LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type& system, size_t N)
-    {
-        typedef Eigen::Matrix<typename TTraits::ValueType, Eigen::Dynamic, 1> TVector;
-        const auto Dim = system.Dimensions();
-
-        TVector y = TVector::Zero(Dim);
-        TVector b(Dim), Ay(Dim), d(Dim);
-        system.ProvideRightHandSide(b);
-        system.ProvideInverseDiagonal(d);
-        const auto Dinv = d.asDiagonal();
-
-        for( size_t k = 0; k < N; ++ k )
-        {
-            system.MultiplySystemMatrixBy(Ay, y);
-            y = y - Dinv * (Ay - b);
-        }
-        return y;
-    }
-#endif
-
+    // Forward inference pass which does not keep a tape (used at test time for better efficiency)
     template<typename TTraits>
     Eigen::Matrix<typename TTraits::ValueType, Eigen::Dynamic, 1>
     ForwardGaussJacobi(typename Classify::LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type& system, size_t N)
@@ -997,40 +921,10 @@ namespace Compute
             system.MultiplySystemMatrixBy(Ay, y);
             y = y - Minimization::ScaleByBlockDiagonal<typename TTraits::ValueType, TTraits::UnaryGroundLabel::Size>(D, Ay - b);;
         }
-        std::cerr << "GJ: ForwardIt " << N << ", ||r|| = " << (Ay - b).norm() << std::endl;
         return y;
     }
 
-#if 0
-    template<typename TTraits>
-    void
-    BackwardGaussJacobi(typename Classify::LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type& system, size_t N,
-                        const Eigen::Matrix<typename TTraits::ValueType, Eigen::Dynamic, 1>& g,
-                        std::vector<Eigen::Matrix<typename TTraits::ValueType, Eigen::Dynamic, 1>> &yBack)
-    {
-        typedef Eigen::Matrix<typename TTraits::ValueType, Eigen::Dynamic, 1> TVector;
-        const auto Dim = system.Dimensions();
-        TVector Ay(Dim), d(Dim);
-        system.ProvideInverseDiagonal(d);
-        const auto Dinv = d.asDiagonal();
-
-        yBack.resize(N+1);
-        yBack[N] = g;
-
-        for( int k = N - 1; k >= 0; --k )
-        {
-            system.MultiplySystemMatrixBy(Ay, yBack[k+1]);
-            yBack[k] = yBack[k+1] - Dinv * Ay;
-        }
-
-        // Pre-scale yBack by D^{-1}, as required for subsequent computation of the gradient wrt the model parameters
-        for( int k = 0; k <= N; ++k )
-            yBack[k] = Dinv * yBack[k];
-
-//		std::cerr << "GJ: BackwardIt " << N << std::endl;
-    }
-#endif
-
+    // Backward pass which recovers the gradient from the tape recorded by the forward pass.
     template<typename TTraits>
     void
     BackwardGaussJacobi(typename Classify::LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type& system, int N,
@@ -1059,6 +953,8 @@ namespace Compute
             yBack[k] = Minimization::ScaleByBlockDiagonal<typename TTraits::ValueType, TTraits::UnaryGroundLabel::Size>(D, yBack[k]);
     }
 
+    // Forward pass of backprop "heavy ball" algorithm by Domke (AISTATS 2012);
+    // not used right now because Gauss-Jacobi is more efficient.
     template<typename TTraits>
     void
     ForwardHeavyBall(typename Classify::LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type& system, size_t N,
@@ -1077,13 +973,13 @@ namespace Compute
         for( size_t k = 0; k < N; ++ k )
         {
             system.MultiplySystemMatrixBy(Ay, y[k]);
-            std::cerr << "HB: ForwardIt " << k << ", ||r|| = " << (Ay - b).norm() << std::endl;
             p = - (Ay - b) + 0.5 * p;
             y[k+1] = y[k] + p;
         }
         return;
     }
 
+    // Backward pass of backprop "heavy ball".
     template<typename TTraits>
     void
     BackwardHeavyBall(typename Classify::LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type& system, size_t N,
@@ -1109,8 +1005,11 @@ namespace Compute
         }
     }
 
+    // LossTraits: Given a loss function, implement functionality such as gradient computation for
+    // discriminative, loss-based training of RTFs. The class abstracts away the differences
+    // in treatment of difference loss functions.
 
-    // General losses for direct risk minimization
+    // The below specialization is for direct loss minimization.
     template<typename TTraits, typename TLossTag>
     struct LossTraits
     {
@@ -1137,14 +1036,16 @@ namespace Compute
         {
             ImageRef<typename TTraits::UnaryGroundLabel> mu(y.Width(), y.Height());
             Compute::for_each_subgraph<TTraits, true>(x, y.Width(), y.Height(), Us, Ps,
-            [&](const Compute::Subgraph<TTraits>& G) {
+                    [&](const Compute::Subgraph<TTraits>& G)
+            {
                 mu(G.PosX(), G.PosY()) = G.Solve();
             });
             auto dloss = TLoss::Gradient(y, mu);
             SystemVectorRef<TValue, VarDim> muPredictionRef(y.Width(), y.Height(), muPrediction);
             SystemVectorRef<TValue, VarDim> muLossGradientRef(y.Width(), y.Height(), muLossGradient);
             Compute::for_each_subgraph<TTraits, true>(x, y.Width(), y.Height(), Us, Ps,
-            [&](const Compute::Subgraph<TTraits>& G) {
+                    [&](const Compute::Subgraph<TTraits>& G)
+            {
                 muLossGradientRef(G.PosX(), G.PosY()) = Utility::LabelToVector(G.Solve(dloss(G.PosX(), G.PosY())));
                 muPredictionRef(G.PosX(), G.PosY())   = Utility::LabelToVector(mu(G.PosX(), G.PosY()));
             });
@@ -1161,12 +1062,16 @@ namespace Compute
                               std::vector<TSolution>& muPrediction,
                               std::vector<TSolution>& muLossGradient)
         {
-            if( Ps.size() == 0 && Ls.size() == 0 ) {
+            if( Ps.size() == 0 && Ls.size() == 0 )
+            {
                 muPrediction.resize(1);
                 muLossGradient.resize(1);
                 return ComputeMeanParametersUnaryOnly(x, y, Us, Ps, muPrediction.back(), muLossGradient.back());
             }
 
+            // Backprop-style training: Consider the inference algorithm as no more than
+            // as some iterative scheme that keeps improving the solution. We stop after a
+            // finite number of steps and trace back the gradient.
             if( residualTol < 0 )
             {
                 std::shared_ptr<TLinearSystem> system( new TLinearSystem(x, y.Width(), y.Height(), Us, Ps, Ls) );
@@ -1177,15 +1082,13 @@ namespace Compute
 
                 return system;
             }
-
-
+            // Otherwise, we rely on the algebraic result for differentiation of the inverse of a matrix;
+            // this requires solving the system to optimality.
             muPrediction.resize(1);
             muLossGradient.resize(1);
 
             // Determine the mean under our model distribution (the prediction)
-            //			const auto t0 = GetTickCount64();
             std::shared_ptr<TLinearSystem> system( new TLinearSystem(x, y.Width(), y.Height(), Us, Ps, Ls) );
-            //std::cerr << "Overall system takes " << (GetTickCount64()-t0) << " ms." << std::endl;
 
 #ifdef USE_GPU
             auto solver = system->GetGPUSolver();
@@ -1193,9 +1096,9 @@ namespace Compute
             system->SetRightHandSide(TLoss::Gradient(y, Utility::LabelingFromSolution<TTraits>(y.Width(), y.Height(), muPrediction[0])));
             muLossGradient[0] = system->SolveOnGPU(solver, maxNumIt, residualTol);
 #else
-            muPrediction[0] = Minimization::PCGSolve<TValue>(*system, (unsigned) maxNumIt, residualTol, false);
+            muPrediction[0] = Minimization::CGSolve<TValue>(*system, (unsigned) maxNumIt, residualTol, false);
             system->SetRightHandSide(TLoss::Gradient(y, Utility::LabelingFromSolution<TTraits>(y.Width(), y.Height(), muPrediction[0])));
-            muLossGradient[0] = Minimization::PCGSolve<TValue>(*system, (unsigned) maxNumIt, residualTol, false);
+            muLossGradient[0] = Minimization::CGSolve<TValue>(*system, (unsigned) maxNumIt, residualTol, false);
 #endif
 
             // Return the system for potential latter use
@@ -1286,6 +1189,7 @@ namespace Compute
         }
     };
 
+    // Specialization for continuous structured perceptron loss, an energy-based training approach.
     template<typename TTraits>
     struct LossTraits<TTraits, Loss::ContinuousPerceptron>
     {
@@ -1314,7 +1218,7 @@ namespace Compute
 
             // Determine the mean under our model distribution (the prediction)
             std::shared_ptr<TLinearSystem> system( new TLinearSystem(x, y.Width(), y.Height(), Us, Ps, Ls, y) );
-            yhat[0]  = Minimization::PCGSolve<TValue>(*system, (unsigned) maxNumIt, residualTol, false);
+            yhat[0]  = Minimization::CGSolve<TValue>(*system, (unsigned) maxNumIt, residualTol, false);
             ystar[0] = Utility::SolutionFromLabeling<TTraits>(y);
 
             // Return the system for potential latter use
@@ -1328,9 +1232,6 @@ namespace Compute
                          const std::vector<TSolution>& ystar,
                          TValue normC)
         {
-            //			const auto lossNormC = Loss::Loss<TTraits, Loss::EPEsmoothed>::NormalizationConstant(y);
-            //std::cerr << "EPE: " << (Loss::Loss<TTraits, Loss::EPEsmoothed>::Objective(y, Utility::LabelingFromSolution<TTraits>(y.Width(), y.Height(), yhat[0]))/lossNormC) << std::endl;
-
             Classify::Detail::UnconstrainedQuadratic<TTraits, Loss::ErrorTerm<TTraits, Loss::ContinuousPerceptron>> quadratic(*system);
             TSolution g;
             auto predicted = quadratic.Eval(yhat[0], g);
@@ -1408,6 +1309,8 @@ namespace Compute
         }
     };
 
+    // Specialization for Gaussian mean field training: Same as continuous perceptron, but with
+    // an additional (factorized) entropy term that enforces "peakedness" of the energy.
     template<typename TTraits>
     struct LossTraits<TTraits, Loss::ContinuousMeanField>
     {
@@ -1436,7 +1339,7 @@ namespace Compute
 
             // Determine the mean under our model distribution (the prediction)
             std::shared_ptr<TLinearSystem> system( new TLinearSystem(x, y.Width(), y.Height(), Us, Ps, Ls, y) );
-            yhat[0] = Minimization::PCGSolve(*system, (unsigned) maxNumIt, residualTol, false);
+            yhat[0] = Minimization::CGSolve(*system, (unsigned) maxNumIt, residualTol, false);
             system->ProvideInverseDiagonal(invDiag[0]);
 
             // Return the system for potential latter use
@@ -1450,8 +1353,6 @@ namespace Compute
                          const std::vector<TSolution>& invDiag,
                          TValue normC)
         {
-            //std::cerr << "EPE: " << (Loss::Loss<TTraits, Loss::EPEsmoothed>::Objective(y, Utility::LabelingFromSolution<TTraits>(y.Width(), y.Height(), yhat[0])) / normC) << std::endl;
-
             Classify::Detail::UnconstrainedQuadratic<TTraits, Loss::NoErrorTerm<TTraits>> quadratic(*system);
             TSolution g;
             const auto m         = invDiag[0].size();
@@ -1520,6 +1421,9 @@ namespace Compute
         }
     };
 
+    // Structured Hamming loss for discrete output variables. This is used along with the convex QP
+    // relaxation described in Jancsary et al. (ICML 2013). The Hamming loss is injected into the
+    // "loss-augmented" inference problem of the max-margin learning formulation.
     template<typename TTraits>
     struct LossTraits<TTraits, Loss::DiscreteHamming>
     {
@@ -1640,6 +1544,9 @@ namespace Compute
         }
     };
 
+    // Class that describes a factor graph and provides functionality for evaluating a given loss
+    // function given the current model and for computing the gradient with respect to the
+    // model parameters.
     template <typename TTraits>
     class FactorGraph
     {
@@ -1681,10 +1588,13 @@ namespace Compute
         template<typename TOp, typename TErrorTerm, bool instantiate>
         void for_each_unary_factor(std::shared_ptr<Classify::Detail::LinearSystem<TTraits, TErrorTerm, instantiate>> system, const TOp& op) const
         {
-            if( system ) {
+            if( system )
+            {
                 for(int idx = 0; idx < Us.size(); ++idx)
                     Us[idx].ForEachInstance(system->Prep(), system->UnaryWeightsImage(idx), system->UnaryBasisImage(idx), op);
-            } else {
+            }
+            else
+            {
                 for(int idx = 0; idx < Us.size(); ++idx)
                     Us[idx].ForEachInstance(x, y, op);
             }
@@ -1700,10 +1610,13 @@ namespace Compute
         template<typename TOp, typename TErrorTerm, bool instantiate>
         void for_each_pairwise_factor(std::shared_ptr<Classify::Detail::LinearSystem<TTraits, TErrorTerm, instantiate>> system, const TOp& op) const
         {
-            if( system ) {
+            if( system )
+            {
                 for(int idx = 0; idx < Ps.size(); ++idx)
                     Ps[idx].ForEachInstance(system->Prep(), system->PairwiseWeightsImage(idx), system->PairwiseBasisImage(idx), op);
-            } else {
+            }
+            else
+            {
                 for(int idx = 0; idx < Ps.size(); ++idx)
                     Ps[idx].ForEachInstance(x, y, op);
             }
@@ -1724,8 +1637,6 @@ namespace Compute
         }
 
     public:
-
-        // Contructs a subgraph from the given parameters - see the descriptions above for details.
         FactorGraph(const TPrep& x_, const ImageRefC<TLabel>& y_,
                     const std::vector<TUnaryFactorType>& Us_, const std::vector<TPairwiseFactorType>& Ps_,
                     const typename TTraits::LinearOperatorVector& Ls_)
@@ -1740,6 +1651,9 @@ namespace Compute
             return x;
         }
 
+        // With some abuse of terminology, we use "mean parameters" to refer to statistics obtained from the solution
+        // of the energy minimization problem that allow for efficient computation of the gradient.
+        // The concrete content of the mean parameters depends on the training objected (i.e. the loss) in use.
         template<typename TLossTag>
         void
         ComputeMeanParameters(size_t maxNumIt, TValue residualTol, std::vector<TSolution>& muPrediction, std::vector<TSolution>& muLossGradient) const
@@ -1748,19 +1662,16 @@ namespace Compute
                     maxNumIt, residualTol, muPrediction, muLossGradient);
         }
 
+        // Evaluate the training objective on this factor graph, for the current model parameters,
+        // and accumulate the gradient with respect to the model parameters.
         template<typename TLossTag>
         TValue ComputeObjectiveAccumulateGradient(TValue normC, size_t maxNumIt, TValue residualTol) const
         {
-            //auto tick1 = GetTickCount64();
-
             // Compute mean parameters
             std::vector<TSolution> muPrediction, muLossGradient;
             auto system = LossTraits<TTraits, TLossTag>::ComputeMeanParameters(x, y, Us, Ps, Ls,
                           maxNumIt, residualTol,
                           muPrediction, muLossGradient);
-
-            //auto tick2 = GetTickCount64();
-            //std::cerr << "Mean parameters take " << (tick2 - tick1) << " ms" << std::endl;
 
             // Accumulate gradient
             const auto yVec = Utility::SolutionFromLabeling<TTraits>(y);
@@ -1779,19 +1690,14 @@ namespace Compute
                 LossTraits<TTraits, TLossTag>::AccumulateOperatorGradient(x, yRef, muPrediction, muLossGradient, normC, op);
             });
 
-
-            //auto tick3 = GetTickCount64();
-            //std::cerr << "Gradient takes " << (tick3 - tick2) << " ms" << std::endl;
-
             // Return objective
             const auto obj = LossTraits<TTraits, TLossTag>::ComputeObjective(y, system, muPrediction, muLossGradient, normC);
-
-            //auto tick4 = GetTickCount64();
-            //std::cerr << "Objective takes " << (tick4 - tick3) << " ms" << std::endl;
 
             return obj;
         }
 
+        // For each gradient contribution by a factor of the specified type, perform the specified action.
+        // This is used to collect the "data points" for tree training, i.e. splitting of nodes.
         template<typename TLossTag, typename TOp>
         void
         ForEachGradientContributionOfType(const TUnaryFactorType& T, const std::vector<TSolution> &muPrediction, const std::vector<TSolution>& muLossGradient,
@@ -1911,6 +1817,8 @@ namespace Compute
             op(i, FactorGraph<TTraits>(prep, ground, Us, Ps, Ls));
         }
     }
+
+    // CODE FOR SETTING UP LINEAR SYSTEMS
 
     // Determines the offset of a particular pixel of an image in a stacked vector representation
     // of all mean vectors.
@@ -2317,8 +2225,6 @@ namespace Compute
                      const typename TTraits::PairwiseBasisImageVector& Pbs,
                      const typename TTraits::LinearOperatorVector& Ls) : cx(cx_), cy(cy_), rows(cx * cy)
         {
-            //const auto t0 = GetTickCount64();
-
             size_t numPairwise = Ps.size();
             for( int l = 0; l < Ls.size(); ++l )
                 numPairwise += Ls[l].NumPairwise();
@@ -2361,7 +2267,6 @@ namespace Compute
                     }
                 }
             }
-            //std::cerr << "Matrix instantiation takes " << (GetTickCount64()-t0) << " ms." << std::endl;
         }
 
         // Multiplies the matrix A described by this object with the given dense vector 'x' and stores the result in 'Ax'.
@@ -2546,8 +2451,10 @@ namespace Compute
             TMatrix Q = TMatrix::Zero();
             TVector l = TVector::Zero();
 
-            for( size_t u = 0; u < Us.size(); ++u ) {
-                Us[u].ForEachConnectedInstance(j, prep, [&](const typename TTraits::UnaryFactorType::ConnectedFactor& f) {
+            for( size_t u = 0; u < Us.size(); ++u )
+            {
+                Us[u].ForEachConnectedInstance(j, prep, [&](const typename TTraits::UnaryFactorType::ConnectedFactor& f)
+                {
                     Q -= f.GetPrecisionBlock();
                     l += f.GetLinearCoefficients();
                 });
@@ -2562,8 +2469,10 @@ namespace Compute
 
             TMatrix Q = TMatrix::Zero();
 
-            for( size_t u = 0; u < Us.size(); ++u ) {
-                Us[u].ForEachConnectedInstance(j, prep, [&](const typename TTraits::UnaryFactorType::ConnectedFactor& f) {
+            for( size_t u = 0; u < Us.size(); ++u )
+            {
+                Us[u].ForEachConnectedInstance(j, prep, [&](const typename TTraits::UnaryFactorType::ConnectedFactor& f)
+                {
                     Q -= f.GetPrecisionBlock();
                 });
             }
@@ -3151,4 +3060,4 @@ namespace Compute
     }
 }
 
-#endif // _H_COMPUTE_H_
+#endif // H_RTF_COMPUTE_H

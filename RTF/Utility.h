@@ -1,11 +1,16 @@
-// File:   Utility.h
-// Author: t-jejan
-//
-// Implements a few mathematical constants and library routines, as well as several
-// other useful helpers.
-//
-#ifndef _H_MY_UTILITY_H
-#define _H_MY_UTILITY_H
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Utility.h
+ * Implements various utility routines, mostly related to I/O and data type conversion.
+ *
+ */
+
+#ifndef H_RTF_UTILITY_H
+#define H_RTF_UTILITY_H
 
 #include <stdexcept>
 #include <fstream>
@@ -283,8 +288,10 @@ namespace Utility
         TValue maxval = -std::numeric_limits<TValue>::max();
         TValue minval = std::numeric_limits<TValue>::max();
 
-        for(int y = 0; y < img.Height(); ++y) {
-            for(int x = 0; x < img.Width(); ++x) {
+        for(int y = 0; y < img.Height(); ++y)
+        {
+            for(int x = 0; x < img.Width(); ++x)
+            {
                 if( img(x, y) > maxval )
                     maxval = img(x,y);
                 if( img(x, y) < minval )
@@ -293,8 +300,10 @@ namespace Utility
         }
 
         // Scale
-        for(int y = 0; y < img.Height(); ++y) {
-            for(int x = 0; x < img.Width(); ++x) {
+        for(int y = 0; y < img.Height(); ++y)
+        {
+            for(int x = 0; x < img.Width(); ++x)
+            {
                 img(x, y) = (img(x, y) - minval)/(maxval - minval);
             }
         }
@@ -569,4 +578,4 @@ size_t GetTickCountPortable()
 }
 
 
-#endif // _H_MY_UTILITY_H
+#endif // H_RTF_UTILITY_H

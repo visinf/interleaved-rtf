@@ -1,5 +1,16 @@
-#ifndef _H_LINEAR_OPERATOR_H
-#define _H_LINEAR_OPERATOR_H
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: LinearOperator.h
+ * Defines the abstract base class for custom linear operator support.
+ *
+ */
+
+#ifndef H_RTF_LINEAR_OPERATOR_H
+#define H_RTF_LINEAR_OPERATOR_H
 
 #include <memory>
 #include <iostream>
@@ -406,4 +417,4 @@ namespace LinearOperator
             };
 }
 
-#endif // _H_LINEAR_OPERATOR_H
+#endif // H_RTF_LINEAR_OPERATOR_H

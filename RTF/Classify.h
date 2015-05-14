@@ -1,42 +1,16 @@
-// File:   Classify.h
-// Author: t-jejan
-//
-// Implements routines for labeling of grids based on a specified RTF model.
-//
-// - Regress()
-//     Directly uses a single unary tree as obtained by one of the training routines
-//     in Training.h.
-//
-// - RegressForest()
-//     Uses several unary regression trees obtained from the training routines in Training.h
-//     and returns the average of the predictions by the individual trees.
-//
-// - RegressViaSampling()
-//     Implements a simple Gibbs sampler that can be used to decode based on the
-//     specified model. The returned labeling is MPM and MAP at the same time, by
-//     virtue of Gaussianity of our model.
-//
-// - RegressViaConjugateGradient()
-//     Solves the linear system -Wx = w determined by the model parameters. This is
-//     generally faster than the Gibbs sampling approach but should otherwise return
-//     the same solution (asymptotically, anyway). We do not yet employ preconditioning,
-//     but this can be added easily. However, RegressViaLBFGS() may be preferable in
-//     that case anyway.
-//
-// - GPURegressViaConjugateGradient()
-//     Same as above, but the sparse linear system is actually solved on the GPU. You will
-//     need the CUDA SDK to use this function.
-//
-// - RegressViaLBFGS()
-//     Minimizes the unconstrained quadratic -1/2 x^TWx - x^Tw via limited-memory
-//     BFGS. Mostly slightly slower than the Conjugate Gradient approach, but
-//     possibly preferable for very ill-conditioned problems. One might also extend
-//     the approach to obtain low-rank confidence information from the L-BFGS
-//     approximation to the inverse Hessian (see CompactInverseHessian in
-//     Minimization.h).
-//
-#ifndef _H_MY_CLASSIFY_H
-#define _H_MY_CLASSIFY_H
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Classify.h
+ * Implements routines for labeling of instances based on a specified RTF model.
+ *
+ */
+
+#ifndef H_RTF_CLASSIFY_H
+#define H_RTF_CLASSIFY_H
 
 #include <stdarg.h>
 #include <random>
@@ -45,7 +19,9 @@
 #include <Eigen/Dense>
 #include <Eigen/StdVector>
 
+#ifdef USE_GPU
 #include "GPU.h"
+#endif // USE_GPU
 #include "Types.h"
 #include "Trees.h"
 #include "Image.h"
@@ -55,7 +31,6 @@
 #include "Compute.h"
 #include "Training.h"
 #include "Minimization.h"
-
 
 namespace Classify
 {
@@ -98,7 +73,7 @@ namespace Classify
         auto prep = TTraits::Feature::PreProcess(image);
         const int cx = image.Width(), cy = image.Height();
         ImageRef<typename TTraits::UnaryGroundLabel> pred(cx, cy);
-        double pred_factor = 1.0 / static_cast<double>(forest.size());	// uniform average
+        double pred_factor = 1.0 / static_cast<double>(forest.size());  // uniform average
 
         for(size_t ti = 0; ti < forest.size(); ++ti)
         {
@@ -126,11 +101,6 @@ namespace Classify
 
     // Predict using Gibbs sampling. We keep iterating over the conditioned subgraphs and draw samples from the induced
     // distribution that are in turn used to update the state vector.
-    //
-    // Options:
-    //    - numSamples    The number of samples that are used to approximate the posterior/MAP.
-    //    - numBurnIn     The number of initial samples that are discarded.
-    //    - verbose       Show detailed output.
     template <typename TTraits>
     ImageRefC<typename TTraits::UnaryGroundLabel> RegressViaSampling(const typename TTraits::UnaryFactorTypeVector& Us,
             const typename TTraits::PairwiseFactorTypeVector& Ps,
@@ -214,7 +184,8 @@ namespace Classify
                 {
                     G_j.AddInSiteLinearCoefficients(b);
                 });
-                std::for_each(Ls.begin(), Ls.end(), [&](const typename TTraits::LinearOperatorRef& op) {
+                std::for_each(Ls.begin(), Ls.end(), [&](const typename TTraits::LinearOperatorRef& op)
+                {
                     op.AddInLinearContribution(prep, b);
                 });
                 TErrorTerm::AddInLinearContribution(ground, b);
@@ -246,7 +217,7 @@ namespace Classify
             }
 
             std::pair < typename TTraits::UnaryBasisImageVector,
-                typename TTraits::PairwiseBasisImageVector > BasisImages() const
+            typename TTraits::PairwiseBasisImageVector > BasisImages() const
             {
                 return Bs;
             }
@@ -377,6 +348,12 @@ namespace Classify
             }
         };
 
+        // Concrete implementation of an RTF sparse linear system that avoids instantiation
+        // of the actual system matrix. Instead, all matrix coefficients are computed on
+        // the fly.  This is faster than explicitly instantiating the matrix if a small
+        // number of CG iterations are performed.
+        // The factor potentials, etc. are also computed on the fly at each iteration,
+        // rather than pre-computed.
         template <typename TTraits, typename TErrorTerm>
         class OnTheFlySystem : public Minimization::LinearSystem<typename TTraits::ValueType>
         {
@@ -408,7 +385,8 @@ namespace Classify
                 {
                     G_j.AddInSiteLinearCoefficients(b);
                 });
-                std::for_each(Ls.begin(), Ls.end(), [&](const typename TTraits::LinearOperatorRef& op) {
+                std::for_each(Ls.begin(), Ls.end(), [&](const typename TTraits::LinearOperatorRef& op)
+                {
                     op.AddInLinearContribution(prep, b);
                 });
                 TErrorTerm::AddInLinearContribution(ground, b);
@@ -546,6 +524,7 @@ namespace Classify
 
         // Concrete implementation of the LinearSystem class that performs the matrix-vector
         // multiplication without actually instantiating the system matrix.
+        // The factor potentials are pre-computed upon instantiation.
         template <typename TTraits, typename TErrorTerm, bool instantiate = false>
         class LinearSystem : public LinearSystemBase<TTraits, TErrorTerm>
         {
@@ -712,6 +691,7 @@ namespace Classify
                 ProvideRightHandSide(b);
             }
 
+#ifdef USE_GPU
             std::shared_ptr< GPU::ConjugateGradientSolver > GetGPUSolver()
             {
                 int numRows, numCols;
@@ -730,6 +710,7 @@ namespace Classify
                 GPU::SolveViaConjugateGradient(solver, b_, sol, maxNumIt, residualTol);
                 return Utility::vector_cast<TExportValue>(sol);
             }
+#endif // USE_GPU
         };
 
         template <typename TTraits, typename TErrorTerm, int CachingMode = WEIGHTS_AND_BASIS_PRECOMPUTED>
@@ -752,148 +733,146 @@ namespace Classify
 
         // Minimize 1/2 x^T A x - x^Tb instead of solving the linear system Ax = b.
         // If A is positive-definite (which it is, in our case) this has the same solution.
-        template<typename TTraits, typename TErrorTerm=Loss::NoErrorTerm<TTraits>>
+        template<typename TTraits, typename TErrorTerm=Loss::NoErrorTerm<TTraits> >
         class UnconstrainedQuadratic : public Minimization::UnconstrainedProblem<typename TTraits::ValueType>
-                {
-            public:
-                    typedef typename TTraits::ValueType TValue;
-                    typedef typename Classify::LinearSystem<TTraits, TErrorTerm>::Type TLinearSystem;
-                    typedef typename TLinearSystem::VectorType TVector;
-
-            private:
-                    const TLinearSystem& system;
-                    TVector b;
-
-            public:
-                    UnconstrainedQuadratic(const TLinearSystem& system_) : system(system_), b(system_.Dimensions())
         {
-            system.ProvideRightHandSide(b);
-        }
+        public:
+            typedef typename TTraits::ValueType TValue;
+            typedef typename Classify::LinearSystem<TTraits, TErrorTerm>::Type TLinearSystem;
+            typedef typename TLinearSystem::VectorType TVector;
 
-        // Note: The gradient with respect to x is given by Ax - b.
-        TValue Eval(const TVector& x, TVector& g)
-        {
-            TVector Ax(Dimensions());
-            system.MultiplySystemMatrixBy(Ax, x);
-            g = Ax - b;
-            //std::cerr << "constant error term: " << TErrorTerm::ConstantContribution(system.GroundTruth()) << std::endl;
-            //std::cerr << "rest of energy: " << (0.5 * x.dot(Ax) - x.dot(b)) << std::endl;
-            return 0.5 * x.dot(Ax) - x.dot(b) + TErrorTerm::ConstantContribution(system.GroundTruth());
-        }
+        private:
+            const TLinearSystem& system;
+            TVector b;
 
-        unsigned int Dimensions() const
-        {
-            return system.Dimensions();
-        }
+        public:
+            UnconstrainedQuadratic(const TLinearSystem& system_) : system(system_), b(system_.Dimensions())
+            {
+                system.ProvideRightHandSide(b);
+            }
 
-        void ProvideStartingPoint(TVector& x0) const
-        {
-            x0 = TVector::Zero(Dimensions());
-        }
+            // Note: The gradient with respect to x is given by Ax - b.
+            TValue Eval(const TVector& x, TVector& g)
+            {
+                TVector Ax(Dimensions());
+                system.MultiplySystemMatrixBy(Ax, x);
+                g = Ax - b;
+                return 0.5 * x.dot(Ax) - x.dot(b) + TErrorTerm::ConstantContribution(system.GroundTruth());
+            }
+
+            unsigned int Dimensions() const
+            {
+                return system.Dimensions();
+            }
+
+            void ProvideStartingPoint(TVector& x0) const
+            {
+                x0 = TVector::Zero(Dimensions());
+            }
 
 
-        void Report(const char* fmt, ...) const
-        {
-            va_list args;
-            va_start(args, fmt);
-            TTraits::Monitor::ReportVA(fmt, args);
-            va_end(args);
-        }
+            void Report(const char* fmt, ...) const
+            {
+                va_list args;
+                va_start(args, fmt);
+                TTraits::Monitor::ReportVA(fmt, args);
+                va_end(args);
+            }
 
-        // Implements senowozi's function minimization interface for compatibility.
-        double Eval(const std::vector<double>& x_, std::vector<double>& g)
-        {
-            TVector Ax(Dimensions());
-            const TVector x = Utility::vector_cast<TValue>(x_);
-            system.MultiplySystemMatrixBy(Ax, x);
-            g = Utility::vector_cast<double>((Ax - b).eval());
-            return 0.5 * x.dot(Ax) - x.dot(b);
-        }
+            double Eval(const std::vector<double>& x_, std::vector<double>& g)
+            {
+                TVector Ax(Dimensions());
+                const TVector x = Utility::vector_cast<TValue>(x_);
+                system.MultiplySystemMatrixBy(Ax, x);
+                g = Utility::vector_cast<double>((Ax - b).eval());
+                return 0.5 * x.dot(Ax) - x.dot(b);
+            }
 
-        void ProvideStartingPoint(std::vector<double>& x0) const
-        {
-            std::fill(x0.begin(), x0.end(), 0.0);
-        }
-                };
+            void ProvideStartingPoint(std::vector<double>& x0) const
+            {
+                std::fill(x0.begin(), x0.end(), 0.0);
+            }
+        };
 
         // Minimize 1/2 x^T A x - x^Tb with A positive-definite subject to unit simplex constraints on blocks of variables.
-        template<typename TTraits, typename TErrorTerm=Loss::NoErrorTerm<TTraits>>
+        template<typename TTraits, typename TErrorTerm=Loss::NoErrorTerm<TTraits> >
         class ConstrainedQuadratic : public Minimization::ProjectableProblem<typename TTraits::ValueType>
-                {
-            public:
-                    typedef typename TTraits::ValueType TValue;
-                    typedef typename Classify::LinearSystem<TTraits, TErrorTerm>::Type TLinearSystem;
-                    typedef typename TLinearSystem::VectorType TVector;
-
-            private:
-                    const TLinearSystem& system;
-                    TVector b;
-
-            public:
-                    ConstrainedQuadratic(const TLinearSystem& system_) : system(system_), b(system_.Dimensions())
         {
-            system.ProvideRightHandSide(b);
-        }
+        public:
+            typedef typename TTraits::ValueType TValue;
+            typedef typename Classify::LinearSystem<TTraits, TErrorTerm>::Type TLinearSystem;
+            typedef typename TLinearSystem::VectorType TVector;
 
-        // Note: The gradient with respect to x is given by Ax - b.
-        TValue Eval(const TVector& x, TVector& g)
-        {
-            TVector Ax(Dimensions());
-            system.MultiplySystemMatrixBy(Ax, x);
-            g = Ax - b;
-            return 0.5 * x.dot(Ax) - x.dot(b) + TErrorTerm::ConstantContribution(system.GroundTruth());
-        }
+        private:
+            const TLinearSystem& system;
+            TVector b;
 
-        TVector Project(const TVector& x) const
-        {
-            TVector xproj_;
-            Compute::SystemVectorRef<TValue, TTraits::UnaryGroundLabel::Size> xproj(system.Width(), system.Height(), xproj_);
-            xproj_ += x;
-            #pragma omp parallel for
-            for( int i = 0; i < system.NumPixels(); ++i ) {
-                Minimization::ProjectOntoUnitSimplex( xproj[i] );
+        public:
+            ConstrainedQuadratic(const TLinearSystem& system_) : system(system_), b(system_.Dimensions())
+            {
+                system.ProvideRightHandSide(b);
             }
-            return xproj_;
-        }
 
-        const TLinearSystem& System() const
-        {
-            return system;
-        }
+            // Note: The gradient with respect to x is given by Ax - b.
+            TValue Eval(const TVector& x, TVector& g)
+            {
+                TVector Ax(Dimensions());
+                system.MultiplySystemMatrixBy(Ax, x);
+                g = Ax - b;
+                return 0.5 * x.dot(Ax) - x.dot(b) + TErrorTerm::ConstantContribution(system.GroundTruth());
+            }
 
-        bool IsFeasible(const TVector& x) const
-        {
-            return Project(x).isApprox(x, TValue(1e-6));
-        }
+            TVector Project(const TVector& x) const
+            {
+                TVector xproj_;
+                Compute::SystemVectorRef<TValue, TTraits::UnaryGroundLabel::Size> xproj(system.Width(), system.Height(), xproj_);
+                xproj_ += x;
+                #pragma omp parallel for
+                for( int i = 0; i < system.NumPixels(); ++i )
+                {
+                    Minimization::ProjectOntoUnitSimplex( xproj[i] );
+                }
+                return xproj_;
+            }
 
-        unsigned int Dimensions() const
-        {
-            return system.Dimensions();
-        }
+            const TLinearSystem& System() const
+            {
+                return system;
+            }
 
-        virtual TValue Norm(const TVector& g) const
-        {
-            return g.template lpNorm<Eigen::Infinity>();
-        }
+            bool IsFeasible(const TVector& x) const
+            {
+                return Project(x).isApprox(x, TValue(1e-6));
+            }
 
-        void ProvideStartingPoint(TVector& x0) const
-        {
-            x0 = Project(TVector::Zero(Dimensions()));
-        }
+            unsigned int Dimensions() const
+            {
+                return system.Dimensions();
+            }
 
-        void Report(const char* fmt, ...) const
-        {
-            va_list args;
-            va_start(args, fmt);
-            TTraits::Monitor::ReportVA(fmt, args);
-            va_end(args);
-        }
+            virtual TValue Norm(const TVector& g) const
+            {
+                return g.template lpNorm<Eigen::Infinity>();
+            }
 
-        void ProvideStartingPoint(std::vector<double>& x0) const
-        {
-            std::fill(x0.begin(), x0.end(), 0.0);
-        }
-                };
+            void ProvideStartingPoint(TVector& x0) const
+            {
+                x0 = Project(TVector::Zero(Dimensions()));
+            }
+
+            void Report(const char* fmt, ...) const
+            {
+                va_list args;
+                va_start(args, fmt);
+                TTraits::Monitor::ReportVA(fmt, args);
+                va_end(args);
+            }
+
+            void ProvideStartingPoint(std::vector<double>& x0) const
+            {
+                std::fill(x0.begin(), x0.end(), 0.0);
+            }
+        };
 
     }
 
@@ -905,11 +884,6 @@ namespace Classify
 
 
     // Minimize the unconstrained quadratic resulting from an RTF model at test time using limited-memory BFGS.
-    //
-    // Options:
-    //   residualTol    The algorithms stops if the Euclidean norm of the gradient of the unconstrained quadratic
-    //                  drops below this number.
-
     template <typename TTraits, size_t M>
     ImageRefC<typename TTraits::UnaryGroundLabel> RegressViaLBFGS(const typename TTraits::UnaryFactorTypeVector& Us,
             const typename TTraits::PairwiseFactorTypeVector& Ps,
@@ -927,14 +901,6 @@ namespace Classify
     }
 
     // Solve the sparse linear system Ax = b resulting from an RTF model using conjugate gradient.
-    //
-    // Options:
-    //   - instantiate   If the template parameter is set to true, the sparse system matrix A will actually be instantiated
-    //                   prior to performing the CG iterations. Otherwise, we use an implementation that forms the product
-    //                   without allocating extra memory. The first option is usually preferable if the number of CG
-    //                   iterations is substantial, as it has much better data locality.
-    //   - residualTol   The method stops if the Euclidean norm of the residual term drops below this number.
-    //                   Note that this is equivalent to the norm of the gradient of the unconstrained quadratic.
     template <typename TTraits, bool instantiate>
     ImageRefC<typename TTraits::UnaryGroundLabel> RegressViaConjugateGradient(const typename TTraits::UnaryFactorTypeVector& Us,
             const typename TTraits::PairwiseFactorTypeVector& Ps,
@@ -960,6 +926,7 @@ namespace Classify
                 Minimization::PCGSolve<typename TTraits::ValueType>(system, maxNumIt, residualTol, false));
     }
 
+    // Efficient code path for a model that only consists of unary factors
     template<typename TTraits>
     ImageRefC<typename TTraits::UnaryGroundLabel> PredictUnariesOnly(const typename TTraits::UnaryFactorTypeVector& Us,
             const typename TTraits::PairwiseFactorTypeVector& Ps,
@@ -968,13 +935,14 @@ namespace Classify
         ImageRef<typename TTraits::UnaryGroundLabel> ret(image.Width(), image.Height());
         Compute::for_each_subgraph<TTraits, true>(TTraits::Feature::PreProcess(image),
                 image.Width(), image.Height(), Us, Ps,
-        [&](const Compute::Subgraph<TTraits>& G) {
+                [&](const Compute::Subgraph<TTraits>& G)
+        {
             ret(G.PosX(), G.PosY()) = G.Solve();
         });
         return ret;
     }
 
-
+    // Poly-algorithm that selects the proper inference algorithm based on the model definition.
     template<typename TTraits>
     ImageRefC<typename TTraits::UnaryGroundLabel> Predict(const typename TTraits::UnaryFactorTypeVector& Us,
             const typename TTraits::PairwiseFactorTypeVector& Ps,
@@ -984,7 +952,8 @@ namespace Classify
             unsigned maxNumIt = 5000,
             bool enforceSimplexConstraints = false)
     {
-        if( ! enforceSimplexConstraints ) {
+        if( ! enforceSimplexConstraints )
+        {
             if( Ps.size() == 0 && Ls.size() == 0 )
                 return PredictUnariesOnly<TTraits>(Us, Ps, image);
 
@@ -998,7 +967,9 @@ namespace Classify
                     Compute::ForwardGaussJacobi<TTraits>(system, maxNumIt)
                     : Minimization::PCGSolve<typename TTraits::ValueType>(system, maxNumIt, residualTol, false));
 #endif
-        } else {
+        }
+        else
+        {
             typedef typename LinearSystem<TTraits, Loss::NoErrorTerm<TTraits>>::Type TLinearSystem;
             TLinearSystem system(image, Us, Ps, Ls);
             Classify::Detail::ConstrainedQuadratic<TTraits, Loss::NoErrorTerm<TTraits>> quadratic(system);
@@ -1007,29 +978,6 @@ namespace Classify
             return Utility::LabelingFromSolution<TTraits>(image.Width(), image.Height(), solution);
         }
     }
-
-#if 0
-    // Same as the above method, but the sparse linear system is solved via conjugate gradient on the GPU.
-    // Towards this end, the sparse system matrix must always be instantiated, hence there is no template parameter
-    // for that.
-    template <typename TTraits>
-    ImageRefC<typename TTraits::UnaryGroundLabel> GPURegressViaConjugateGradient(const typename TTraits::UnaryFactorTypeVector& Us,
-            const typename TTraits::PairwiseFactorTypeVector& Ps,
-            const ImageRefC<typename TTraits::InputLabel> image,
-            typename TTraits::ValueType residualTol = 1e-4,
-            unsigned maxNumIt = 5000)
-    {
-        Detail::LinearSystem<TTraits, true> system(image, Us, Ps);
-        std::vector<int> rowIndices, colIndices;
-        std::vector<float> values, b, x;
-        int numRows, numCols;
-        system.Export(numRows, rowIndices, numCols, colIndices, values, b);
-        system.Report("GPU: Solving linear system of %u variables.\n", b.size());
-        GPU::SolveViaConjugateGradient(numRows, rowIndices, numCols, colIndices, values, b, x, maxNumIt, residualTol);
-        system.Report("GPU: Done.\n");
-        return Utility::LabelingFromSolution<TTraits>(image.Width(), image.Height(), Utility::vector_cast<typename TTraits::ValueType>(x));
-    }
-#endif
 }
 
-#endif // _H_MY_CLASSIFY_H
+#endif // H_RTF_CLASSIFY_H

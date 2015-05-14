@@ -1,42 +1,17 @@
-// File:   Serialization.h
-// Author: t-jejan
-//
-// Implements functionality that allows to dump RTF models to disk and to read them
-// in again at a later point in time.
-//
-// If you want your model to be serialiazable, your Feature class must implement the
-// stream operators
-//
-//   std::ostream & operator<<(std::ostream& os, const Feature& feat);
-//
-// and
-//
-//   std::istream& operator>>(std::istream& is, Feature& feat);
-//
-// in a fully self-contained manner. It is recommended to use a plain text representation
-// of your features.
-//
-// You can then use the following API functions:
-//
-// - WriteModel()
-//     Writes a plain text representation of your RTF model to the given output stream.
-//     This comprises the structure of the underlying regression tree of each factor type,
-//     including the features at the inner nodes and the weights at the leaves.
-//     You will still have to set up the model traits at compile time, however.
-// - ReadModel()
-//     Recovers the contents of a factor type from the given input stream. The underlying
-//     regression trees will be instantiated and populated with the feature instances
-//     at the nodes and the weights instances at the leaves.
-//
-// - WriteTree()
-//     Writes a plain text representation of a given tree to the given output stream.
-// - ReadTree()
-//     Recovers the contents of a regression tree from the given input stream.
-//
-// See below for details.
-//
-#ifndef _H_SERIALIZATION_H_
-#define _H_SERIALIZATION_H_
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Serialization.h
+ * Implements functionality for writing RTF models to and reading them from disk.
+ *
+ */
+
+
+#ifndef H_RTF_SERIALIZATION_H
+#define H_RTF_SERIALIZATION_H
 
 #include <string>
 #include <iostream>
@@ -222,7 +197,6 @@ namespace Serialization
     {
         size_t numUs;
         in >> numUs;
-        std::cerr << numUs << " unary factor types" << std::endl;
         Us.clear();
 
         for(size_t u = 0; u < numUs; ++u)
@@ -235,14 +209,12 @@ namespace Serialization
             in >> Us.back();
             int quadraticBasisIndex;
             in >> quadraticBasisIndex;
-            std::cerr << "quadratic basis index: " << quadraticBasisIndex << std::endl;
             Us.back().SetQuadraticBasisIndex(quadraticBasisIndex);
         }
 
         size_t numPs;
         in >> numPs;
         Ps.clear();
-        std::cerr << numPs << " pairwise factor types" << std::endl;
 
         for(size_t p = 0; p < numPs; ++p)
         {
@@ -259,7 +231,6 @@ namespace Serialization
             in >> Ps.back();
             int quadraticBasisIndex;
             in >> quadraticBasisIndex;
-            std::cerr << "quadratic basis index: " << quadraticBasisIndex << std::endl;
             Ps.back().SetQuadraticBasisIndex(quadraticBasisIndex);
         }
 
@@ -267,7 +238,6 @@ namespace Serialization
         in >> numLs;
         Ls.clear();
 
-        std::cerr << numLs << " linear operators" << std::endl;
         for( size_t l = 0; l < numLs; ++l )
         {
             int type;
@@ -286,7 +256,6 @@ namespace Serialization
                    typename TTraits::PairwiseFactorTypeVector& Ps,
                    typename TTraits::LinearOperatorVector& Ls = typename TTraits::LinearOperatorVector())
     {
-        std::cerr << "Reading " << path << std::endl;
         std::ifstream in(path);
         ReadModel<TTraits>(in, Us, Ps, Ls);
     }
@@ -332,4 +301,4 @@ namespace Serialization
     }
 }
 
-#endif // _H_SERIALIZATION_H_
+#endif // H_RTF_SERIALIZATION_H

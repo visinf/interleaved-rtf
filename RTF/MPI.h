@@ -1,5 +1,16 @@
-#ifndef _H_RTF_MPI_H_
-#define _H_RTF_MPI_H_
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: MPI.h
+ * Defines utility routines for MPI support.
+ *
+ */
+
+#ifndef H_RTF_MPI_H
+#define H_RTF_MPI_H
 
 #include "Types.h"
 
@@ -24,4 +35,4 @@ namespace MPI
 
 #endif // USE_MPI
 
-#endif // _H_RTF_MPI_H_
+#endif // H_RTF_MPI_H

@@ -21,16 +21,18 @@ typedef Deblurring::FeatureSampler FeatureSampler_t;
 typedef Deblurring::FeatureSampler::TFeature Feature_t;
 typedef Deblurring::Dataset::UnaryGroundLabel Label_t;
 typedef LinearOperator::DefaultWeights<Label_t::ValueType> DefaultWeights_t;
-typedef Stacked::RTF<FeatureSampler_t,
-		       Dataset_t,
-		       GradientNormCriterion, // split based on gradient norm
-		       true, // use linear basis
-		       true, // use explicit threshold checking in tree splits
-		       WEIGHTS_AND_BASIS_PRECOMPUTED> RTF_t;
 typedef Monitor::DefaultMonitor MyMonitor; // console output channel
+typedef Stacked::RTF<FeatureSampler_t,
+		     Dataset_t,
+		     GradientNormCriterion, // split based on gradient norm
+		     true, // use linear basis
+		     true, // use explicit threshold checking in tree splits
+		     NullPrior,
+		     Monitor::DefaultMonitor,
+		     WEIGHTS_AND_BASIS_PRECOMPUTED> RTF_t;
 
 // set path to base directory
-boost::filesystem::path path = "";
+boost::filesystem::path path = "PLEASE_SET_THIS_PATH";
 
 int main ()
 {

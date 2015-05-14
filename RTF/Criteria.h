@@ -1,17 +1,16 @@
-// File:   Criteria.h
-// Author: t-jejan, senowozi
-//
-// Implements splitting criteria to be used for regression tree training.
-//
-// The SquaredResidualsCriterion is the classic criterion introduced by Breimann and
-// is recommended for production use.
-//
-// The DifferentialEntropyCriterion is experimental and should not yet be used; it
-// exposes numerical problems when two points in the dataset are exactly identical
-// (which has probability zero).
-//
-#ifndef _H_MY_CRITERIA_H
-#define _H_MY_CRITERIA_H
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Criteria.h
+ * Implements splitting criteria to be used for regression tree training.
+ *
+ */
+
+#ifndef H_RTF_CRITERIA_H
+#define H_RTF_CRITERIA_H
 
 #include <algorithm>
 #include <limits>
@@ -23,10 +22,6 @@
 
 #include "Types.h"
 #include "Utility.h"
-
-#ifdef USE_MPI
-#include "MPI.h"
-#endif
 
 namespace Criteria
 {
@@ -203,8 +198,6 @@ namespace Criteria
     };
 
     // Gradient norm splitting criterion
-    //
-    // Author: t-jejan
     //
     // The criterion for joint training of weights and trees; we measure the squared norm of
     // the projected gradient with respect to the new model parameters introduced by the split.
@@ -392,4 +385,4 @@ namespace Criteria
         return inbuf;
     }
 }
-#endif // _H_MY_CRITERIA_H
+#endif // H_RTF_CRITERIA_H

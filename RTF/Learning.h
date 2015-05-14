@@ -1,37 +1,16 @@
-// File:   Learning.h
-// Author: t-jejan
-//
-// Implements optimization of Regression Tree Field parameters.
-//
-// Use MakeUnaryFactorType() and MakePairwiseFactorType() to obtain factor types
-// from regression trees that were previously trained using one of the training
-// methods in Training.h.
-//
-// Each factor type consists of a tree, the leaves of which store the model
-// parameters of our conditional field.
-//
-// A model consists of a list of unary factor types and a list of pairwise factor
-// types. The parameters of these types can be optimized using OptimizeWeights()
-// and its variants.
-//
-// Optimization of the parameters is subject to constraints on the eigenvalues
-// of the matrix parameters. We use projected Quasi-Newton to handle this constraint
-// (see Minimization.h).
-//
-// Depending on the model traits, a prior may also be added on the unary and
-// pairwise terms, see Priors.h.
-//
-// The following two functions are of main interest to a user:
-//
-// - OptimizeWeights()
-//     Optimizes the weights of the given factor types by maximizing the pseudolikelihood
-//     of the provided dataset.
-//
-// - OptimizeWeightsSubsample()
-//     Subsampling variant of the above.
-//
-#ifndef _H_LEARNING_H
-#define _H_LEARNING_H
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Learning.h
+ * Implements a high-level procedural interface for estimation of model parameters.
+ *
+ */
+
+#ifndef H_RTF_LEARNING_H
+#define H_RTF_LEARNING_H
 
 #include <vector>
 #include <numeric>
@@ -201,8 +180,14 @@ namespace Learning
             TTraits::Monitor::ReportVA(fmt, args);
             va_end(args);
         }
+
+        void ReportVA(const char* fmt, va_list args) const
+        {
+            TTraits::Monitor::ReportVA(fmt, args);
+        }
     };
 
+    // Class that represent a loss-based RTF learning problem.
     template<typename TTraits, typename TLossTag, bool Subsample = false>
     class RegressionTreeFieldProblem : public RegressionTreeFieldProblemBase<TTraits, Subsample>
     {
@@ -251,9 +236,7 @@ namespace Learning
             {
                 myObj += G.template ComputeObjectiveAccumulateGradient<TLossTag>(normC, maxNumItCG, residualTolCG);
             });
-            //std::cerr << "My own objective: " << myObj << std::endl;
             boost::mpi::all_reduce(MPI::Communicator(), myObj, obj, std::plus<TValue>());
-            //std::cerr << "Global objective: " << obj << std::endl;
 
             // Collect the gradient that was accumulated while iterating over the conditioned subgraphs,
             // and add in the contributions of the prior
@@ -292,7 +275,7 @@ namespace Learning
             {
                 obj += G.template ComputeObjectiveAccumulateGradient<TLossTag>(normC, maxNumItCG, residualTolCG);
             });
-            //std::cerr << "objective: " << obj << std::endl;
+
             // Collect the gradient that was accumulated while iterating over the conditioned subgraphs,
             // and add in the contributions of the prior
             TValue *gptr = gradient.data();
@@ -300,8 +283,6 @@ namespace Learning
             {
                 gptr = T.GetGradientAddPrior(gptr, obj);
             });
-            //std::cerr << "objective + prior: " << obj << std::endl;
-            //Sleep(1000);
 
             // An overflow occurred during computation of the objective; we signal this to the linesearch
             // routine by returning a very large value
@@ -313,6 +294,9 @@ namespace Learning
 #endif // USE_MPI
     };
 
+    // Class that represent a pseudolikelihood-based RTF learning problem.
+    // We need a specialization because the learning approach is quite different from those
+    // objective functions that are based on complete factor graphs and require inference.
     template<typename TTraits, bool Subsample>
     class RegressionTreeFieldProblem<TTraits, Detail::NLPLLoss, Subsample> : public RegressionTreeFieldProblemBase<TTraits, Subsample>
     {
@@ -363,7 +347,6 @@ namespace Learning
             {
                 gptr = T.GetGradientAddPrior(gptr, obj);
             });
-            this->Report(" ... contribution of prior: %f\n", (obj - before));
 
             // An overflow occurred during computation of the objective; we signal this to the linesearch
             // routine by returning a very large value
@@ -403,12 +386,6 @@ namespace Learning
 
     // Given a unary regression tree obtained from regression tree training, constructs a unary factor type suitable for
     // use in a regression tree field model.
-    //
-    // Options:
-    //   - smallestEigenvalue        Constrains all eigenvalues of the matrix parameters of the model to be <= smallestEigenvalue
-    //   - largestEigenvalue         Constrains all eigenvalues of the matrix parameters of the model to be >= smallestEigenvalue
-    //   - linearRegularizationC     Regularization constant for the prior on the vector parameters of the model, if any
-    //   - quadraticRegularizationC  Regularization constant for the prior on the matrix parameters of the model, if any
     template <typename TTraits>
     typename TTraits::UnaryFactorType
     MakeUnaryFactorType(typename TTraits::UnaryTreeCRef tree,
@@ -446,12 +423,6 @@ namespace Learning
 
     // Given a pairwise regression tree obtained from regression tree training, constructs a pairwise factor type suitable for
     // use in a regression tree field model.
-    //
-    // Options:
-    //   - smallestEigenvalue        Constrains all eigenvalues of the matrix parameters of the model to be <= smallestEigenvalue
-    //   - largestEigenvalue         Constrains all eigenvalues of the matrix parameters of the model to be >= smallestEigenvalue
-    //   - linearRegularizationC     Regularization constant for the prior on the vector parameters of the model, if any
-    //   - quadraticRegularizationC  Regularization constant for the prior on the matrix parameters of the model, if any
     template <typename TTraits>
     typename TTraits::PairwiseFactorType
     MakePairwiseFactorType(typename TTraits::PairwiseTreeCRef tree, const VecCRef<Vector2D<int>>& offsets,
@@ -480,7 +451,6 @@ namespace Learning
                            typename TTraits::ValueType linearRegularizationC    = TTraits::PairwisePrior::DefaultLinearConstant(),
                            typename TTraits::ValueType quadraticRegularizationC = TTraits::PairwisePrior::DefaultQuadraticConstant())
     {
-        //std::cerr << "MakePairwiseFactorType: smallest eigenvalue is " << smallestEigenvalue << std::endl;
         auto tree = typename Traits_<typename TTraits::Feature, typename TTraits::PairwiseGroundLabel, typename TTraits::PairwiseBasis>::ModelTreeRef();
         tree.set_head(NodeData<typename TTraits::Feature, typename TTraits::PairwiseWeights>(smallestEigenvalue));
         return typename TTraits::PairwiseFactorType(tree, offsets, smallestEigenvalue, largestEigenvalue,
@@ -517,64 +487,6 @@ namespace Learning
                     typename TTraits::PairwiseBasis >::ModelTreeRef(), offsets, smallestEigenvalue, largestEigenvalue, linearRegularizationC, quadraticRegularizationC);
         }
     }
-
-#if 0
-    // Optimizes the weights of the given factor types using all data points provided by 'traindb'.
-    //
-    // Options:
-    //   - breakEps   Training stops if the L1-norm of the gradient drops below this number.
-    //   - maxNumIt   Training stops after at most maxNumIt iterations, irrespective of the norm of the gradient.
-    template <typename TTraits, size_t m>
-    void OptimizeWeights(typename TTraits::UnaryFactorTypeVector& Us,
-                         typename TTraits::PairwiseFactorTypeVector& Ps,
-                         const typename TTraits::DataSampler& traindb,
-                         typename TTraits::ValueType breakEps = 5e-2,
-                         size_t maxNumIt = 5000)
-    {
-        RegressionTreeFieldProblem<TTraits, false> problem(Us, Ps, traindb);
-        typename Minimization::ProjectableProblem<typename TTraits::ValueType>::TVector solution(problem.Dimensions());
-        Minimization::RestartingLBFGSMinimize<m>(problem, solution, maxNumIt, breakEps, true, 5);
-        //Minimization::PQNMinimize<m>(problem, solution, maxNumIt, breakEps, 5 * m);
-    }
-
-    // BUGBUG: This does not work! It is merely left in this file to demonstrate why unconstrained training
-    // is a bad idea.
-    template <typename TTraits, size_t m>
-    void OptimizeWeightsUnconstrained(typename TTraits::UnaryFactorTypeVector& Us,
-                                      typename TTraits::PairwiseFactorTypeVector& Ps,
-                                      const typename TTraits::DataSampler& traindb,
-                                      typename TTraits::ValueType breakEps = 5e-2,
-                                      size_t maxNumIt = 5000)
-    {
-        RegressionTreeFieldProblem<TTraits, false> problem(Us, Ps, traindb);
-        typename Minimization::ProjectableProblem<typename TTraits::ValueType>::TVector solution(problem.Dimensions());
-        Minimization::LBFGSMinimize<m>(problem, solution, maxNumIt, breakEps, true);
-    }
-
-    // Optimizes the weights of the given factor types using a subsample of the data points provided by 'traindb'.
-    // The dataset class must implement the subsampling interface.
-    //
-    // Options:
-    //   - breakEps   Training stops if the L1-norm of the gradient drops below this number.
-    //   - maxNumIt   Training stops after at most maxNumIt iterations, irrespective of the norm of the gradient.
-    template <typename TTraits, size_t m>
-    void OptimizeWeightsSubsample(typename TTraits::UnaryFactorTypeVector& Us,
-                                  typename TTraits::PairwiseFactorTypeVector& Ps,
-                                  const typename TTraits::DataSampler& traindb,
-                                  typename TTraits::ValueType breakEps = 5e-2,
-                                  size_t maxNumIt = 5000)
-    {
-        RegressionTreeFieldProblem<TTraits, Detail::NLPLLoss, true> problem(Us, Ps, traindb);
-#if 0
-        Minimization::CheckDerivative(problem, 1e-4, 100, 1e-8, 1e-3);
-        Sleep(10000);
-#endif
-        typename Minimization::ProjectableProblem<typename TTraits::ValueType>::TVector solution(problem.Dimensions());
-        Minimization::RestartingLBFGSMinimize<m>(problem, solution, maxNumIt, breakEps, true, 5);
-        //Minimization::PQNMinimize<m>(problem, solution, maxNumIt, 1e-4, 5 * m);
-        //Minimization::SPGMinimize(problem, solution, maxNumIt, breakEps, true);
-    }
-#endif
 
     template <typename TTraits, bool Subsample, size_t m>
     typename TTraits::ValueType
@@ -710,19 +622,12 @@ namespace Learning
                     const typename TTraits::DataSampler& traindb,
                     typename TTraits::ValueType residualTolCG, size_t maxNumItCG)
             {
-//				if( Subsample ) // If subsampling, we do not want to pre-compute mean parameters to reduce the amount of memory needed
-//					return typename LearningTraits<TTraits, TLossTag>::MeanParametersRef(0);
-
                 typename LearningTraits<TTraits, TLossTag>::MeanParametersRef meanParams(traindb.GetImageCount());
                 Compute::for_each_factor_graph_with_index<TTraits>(traindb, Us, Ps, Ls,
                         [&](size_t id, const Compute::FactorGraph<TTraits>& G)
                 {
-//					std::cerr << "Getting mean parameters" << std::endl;
                     G.template ComputeMeanParameters<TLossTag>(maxNumItCG, residualTolCG,
                             meanParams[id].muPrediction, meanParams[id].muLossGradient);
-                    //std::cerr << meanParams[id].muPrediction << std::endl;
-//					std::cerr << meanParams[id].muLossGradient << std::endl;
-//					Sleep(10000);
                 });
                 return meanParams;
             }
@@ -890,12 +795,6 @@ namespace Learning
                 Compute::for_each_factor_graph_with_index<TTraits>(sampler, Us, Ps, Ls,
                         [&](size_t id, const Compute::FactorGraph<TTraits>& G)
                 {
-                    // Subsampling, so we do not use pre-computed mean parameters but rather compute them on the fly
-                    //TSolution muPrediction, muLossGradient;
-                    //G.template ComputeMeanParameters<TLossTag>(maxNumItCG, residualTolCG,
-                    //                                           muPrediction, muLossGradient);
-
-                    sampler.ResampleVariables();
                     G.template ForEachGradientContributionOfType<TLossTag>(T, meanParameters[id].muPrediction, meanParameters[id].muLossGradient, 1,
                             sampler.GetSubsampledVariables(id),
                             [&](const int posX, const int posY, const TVarBasisMatrix & Gl, const TVarVarMatrix & Gq)
@@ -1051,12 +950,13 @@ namespace Learning
             {
                 size_t nAdded = 0;
 
-                for( size_t i = 0; i < sampler.GetImageCount(); ++ i ) {
+                for( size_t i = 0; i < sampler.GetImageCount(); ++ i )
+                {
                     auto img  = sampler.GetInputImage(i);
                     auto prep = TTraits::Feature::PreProcess(img);
 
-                    if( Subsample ) {
-                        sampler.ResampleVariables();
+                    if( Subsample )
+                    {
                         L.ForEachGradientContribution(prep, meanParameters[i].muLossGradient, meanParameters[i].muPrediction, sampler.GetSubsampledVariables(i),
                                                       [&](const int posX, const int posY, const TLabel& label)
                         {
@@ -1064,7 +964,9 @@ namespace Learning
                             #pragma omp atomic
                             nAdded++;
                         });
-                    } else {
+                    }
+                    else
+                    {
                         L.ForEachGradientContribution(prep, meanParameters[i].muLossGradient, meanParameters[i].muPrediction,
                                                       [&](const int posX, const int posY, const TLabel& label)
                         {
@@ -1080,10 +982,14 @@ namespace Learning
             size_t TotalNumPoints() const
             {
                 size_t nAdded = 0;
-                for( size_t i = 0; i < sampler.GetImageCount(); ++i ) {
-                    if( Subsample ) {
+                for( size_t i = 0; i < sampler.GetImageCount(); ++i )
+                {
+                    if( Subsample )
+                    {
                         nAdded += sampler.GetSubsampledVariables(i).size();
-                    } else {
+                    }
+                    else
+                    {
                         auto img = sampler.GetInputImage(i);
                         nAdded += img.Width() * img.Height();
                     }
@@ -1323,12 +1229,16 @@ namespace Learning
 
                 // Now optimize for the true loss
                 RegressionTreeFieldProblem<TTraits, TLossTag, Subsample> problem(Us, Ps, Ls, traindb, residualTolCG, maxNumItCG);
+
+                // The below code is useful to check the derivative with respect to the model parameters.
+                // Such checks should be performed, for instance, when implementing a new loss function.
 #if 0
                 Minimization::CheckDerivative<double>(problem, 1e-4, 1000, 1e-6, 1e-8);
                 Sleep(10000);
 #endif
                 typename Minimization::ProjectableProblem<typename TTraits::ValueType>::TVector solution(problem.Dimensions());
-//				return Minimization::SPGMinimize(problem, solution, maxNumIt, breakEps, true);
+
+                // Find the optimal model parameters using the specified optimization algorithm.
 #if defined(LEARNING_USE_PQN)
                 return Minimization::PQNMinimize<m>(problem, solution, maxNumIt, breakEps, 50, true, 16);
 #elif defined(LEARNING_USE_SPG)
@@ -1403,7 +1313,8 @@ namespace Learning
             for(size_t u = 0; u < Uts.size(); ++u)
             {
                 features.resize(UInfos[u].nFeatureCount);
-                std::generate(features.begin(), features.end(), [&]() {
+                std::generate(features.begin(), features.end(), [&]()
+                {
                     return featureSampler(level);
                 } );
                 TMonitor::Report("  Growing unary tree no. %u, maximum depth %u\n", u, UInfos[u].nDepthLevels);
@@ -1417,11 +1328,14 @@ namespace Learning
                                  Detail::CriterionDispatcher < typename TTraits::UnarySplitCriterionTag,
                                  typename TTraits::UnarySplitCriterion,
                                  typename TTraits::UnaryFactorType >::Instantiate(Us[u], UInfos[u].purityEpsilon));
-                if( grown ) {
+                if( grown )
+                {
                     TMonitor::Report("  Done, merging new leaves.\n");
                     Us[u].MergeTree(Uts[u]);
                     nGrown += grown;
-                } else {
+                }
+                else
+                {
                     TMonitor::Report("  Done, tree has reached maximum depth.\n");
                 }
             }
@@ -1429,7 +1343,8 @@ namespace Learning
             for(size_t p = 0; p < Pts.size(); ++p)
             {
                 features.resize(PInfos[p].nFeatureCount);
-                std::generate(features.begin(), features.end(), [&]() {
+                std::generate(features.begin(), features.end(), [&]()
+                {
                     return featureSampler(level);
                 });
                 TMonitor::Report("  Growing pairwise tree no. %u, maximum depth %u\n", p, PInfos[p].nDepthLevels);
@@ -1443,11 +1358,14 @@ namespace Learning
                                  Detail::CriterionDispatcher < typename TTraits::PairwiseSplitCriterionTag,
                                  typename TTraits::PairwiseSplitCriterion,
                                  typename TTraits::PairwiseFactorType >::Instantiate(Ps[p], PInfos[p].purityEpsilon));
-                if( grown ) {
+                if( grown )
+                {
                     TMonitor::Report("  Done, merging new leaves.\n");
                     Ps[p].MergeTree(Pts[p]);
                     nGrown += grown;
-                } else {
+                }
+                else
+                {
                     TMonitor::Report("  Done, tree has reached maximum depth.\n");
                 }
             }
@@ -1458,7 +1376,8 @@ namespace Learning
                 if( info.hasTree )
                 {
                     features.resize(info.nFeatureCount);
-                    std::generate(features.begin(), features.end(), [&]() {
+                    std::generate(features.begin(), features.end(), [&]()
+                    {
                         return featureSampler(level);
                     });
                     TMonitor::Report("  Growing linear operator tree no. %u, maximum depth %u\n", l, info.nDepthLevels);
@@ -1476,11 +1395,14 @@ namespace Learning
                                          info.smallestEigenvalue,
                                          info.largestEigenvalue)
                                  );
-                    if( grown ) {
+                    if( grown )
+                    {
                         TMonitor::Report("  Done, merging new leaves.\n");
                         Ls[l].MergeTree(Lts[l]);
                         nGrown += grown;
-                    } else {
+                    }
+                    else
+                    {
                         TMonitor::Report("  Done, tree has reached maximum depth.\n");
                     }
                 }
@@ -1517,7 +1439,6 @@ namespace Learning
             {
                 TMonitor::Report("Processing level %d.\n", level);
 
-                //Sleep(10000);
                 if(level == 1)
                     TMonitor::Report("  Optimizing weights.\n");
                 else

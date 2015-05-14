@@ -1,4 +1,16 @@
-#pragma once
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Rect.h
+ * Implements simple functionality related to rectangles.
+ *
+ */
+
+#ifndef H_RTF_RECT_H
+#define H_RTF_RECT_H
 
 // Implements a 2D vector class and a rectangle class
 // The rectangle supports trunctuation and deflation by vectors
@@ -70,3 +82,4 @@ struct Rect
     T left, top, right, bottom;
 };
 
+#endif // H_RTF_RECT_H

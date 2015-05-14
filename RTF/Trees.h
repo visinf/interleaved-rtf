@@ -1,9 +1,21 @@
-#pragma once
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Trees.h
+ * Implements a simple class for representing binary regression trees. The
+ * implementation is array-based and most efficient for dense trees.
+ *
+ */
+
+#ifndef H_RTF_TREES_H
+#define H_RTF_TREES_H
 
 #include <vector>
 #include <stdexcept>
 
-#include "Misc/tree.hh"
 #include "Array.h"
 #include "Rect.h"
 
@@ -25,136 +37,337 @@ struct NodeData
 };
 
 template <typename TFeature, typename TTrainingData, typename TAllocator = std::allocator<tree_node_<NodeData<TFeature, TTrainingData> > > >
-class DecisionTree : public tree<NodeData<TFeature, TTrainingData>, TAllocator>
+class Tree
 {
 public:
-    typedef tree<NodeData<TFeature, TTrainingData>, TAllocator> TreeBase;
-    typedef unsigned int Path;
 
-    class test_time_iterator : public tree<NodeData<TFeature, TTrainingData>, TAllocator>::iterator_base
+    typedef NodeData<TFeature, TTrainingData> TNodeData;
+    typedef Tree<TFeature, TTrainingData, TAllocator> TTree;
+
+    typedef TNodeData  value_type;
+    typedef TNodeData* pointer_type;
+    typedef TNodeData& reference_type;
+
+    class iterator_base
     {
     public:
-        typedef typename tree<NodeData<TFeature, TTrainingData>, TAllocator>::iterator_base Base;
+        iterator_base() : node(-1), tree(nullptr) {}
+        iterator_base(int n, TTree* t) : node(n), tree(t) {}
 
-        test_time_iterator() : m_x(-1), m_y(-1), m_prep(nullptr), m_path(0), m_mask(1) {}
-
-        test_time_iterator(const test_time_iterator& rhs) : tree<NodeData<TFeature, TTrainingData>, TAllocator>::iterator_base(rhs), m_x(rhs.m_x), m_y(rhs.m_y), m_prep(rhs.m_prep), m_path(rhs.m_path), m_mask(rhs.m_mask), m_offsets(rhs.m_offsets) {}
-
-        test_time_iterator(typename tree<NodeData<TFeature, TTrainingData>, TAllocator>::tree_node* start, int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets)
-            : tree<NodeData<TFeature, TTrainingData>, TAllocator>::iterator_base(start), m_x(x), m_y(y), m_prep(&preProcessed), m_offsets(offsets), m_path(0), m_mask(1) {}
-
-        test_time_iterator& operator++()
+        reference_type operator*() const
         {
-            if(Base::node->first_child != nullptr)
-            {
-                bool b = Base::node->data.feature(m_x, m_y, *m_prep, m_offsets);
-                Base::node = b ? Base::node->last_child : Base::node->first_child;
-#pragma warning(push)
-#pragma warning(disable: 4146) // Disable warning about '-' operator applied to unsigned type.
-                m_path |= m_mask & (-(Path)b);
-#pragma warning(pop)
-                m_mask <<= 1;
-            }
-            else
-                Base::node = nullptr;
-
-            return *this;
+            return (*tree)[node];
         }
+
+        pointer_type operator->() const
+        {
+            return &((*tree)[node]);
+        }
+
         operator bool() const
         {
-            return Base::node != nullptr;
+            return node != -1;
         }
-        bool operator ==(const test_time_iterator& rhs) const
+
+        bool operator ==(const iterator_base& rhs) const
         {
-            return Base::node == rhs.node;
+            return (node == rhs.node);
         }
-        bool operator !=(const test_time_iterator& rhs) const
+
+        bool operator !=(const iterator_base& rhs) const
         {
             return !operator ==(rhs);
         }
-        Path path() const
+
+        int number_of_children() const
         {
-            return m_path;
+            return tree->number_of_children(node);
         }
+
+        int right_child() const
+        {
+            return tree->right_child(node);
+        }
+
+        int left_child() const
+        {
+            return tree->left_child(node);
+        }
+
+        const TFeature& feature() const
+        {
+            return (*tree)[node].feature;
+        }
+
+        bool used() const
+        {
+            return tree->used[node];
+        }
+
+        bool valid() const
+        {
+            return (node >= 0) && (node < tree->used.size());
+        }
+
+        int node;
+        TTree* tree;
+    };
+
+    class test_time_iterator : public iterator_base
+    {
+    public:
+        typedef iterator_base base;
+
+        test_time_iterator() : m_x(-1), m_y(-1), m_prep(nullptr) {}
+        test_time_iterator(int n, TTree* t, int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets)
+            : iterator_base(n, t), m_x(x), m_y(y), m_prep(&preProcessed), m_offsets(offsets) {}
+
+        test_time_iterator& operator++()
+        {
+            if( base::number_of_children() > 0 )
+            {
+                const auto branch = base::feature()(m_x, m_y, *m_prep, m_offsets);
+                base::node = branch ? base::right_child() : base::left_child();
+            }
+            else
+            {
+                base::node = -1;
+            }
+
+            return *this;
+        }
+
     protected:
-        Path m_path, m_mask;
         int m_x, m_y;
         const typename TFeature::PreProcessType* m_prep;
         VecCRef<Vector2D<int> > m_offsets;
     };
 
-    class path_iterator : public tree<NodeData<TFeature, TTrainingData>, TAllocator>::iterator_base
+    class breadth_first_iterator : public iterator_base
     {
     public:
-        typedef typename tree<NodeData<TFeature, TTrainingData>, TAllocator>::iterator_base Base;
-        path_iterator() : m_path(0) {}
-        path_iterator(typename tree<NodeData<TFeature, TTrainingData>, TAllocator>::tree_node* start, Path path) : tree<NodeData<TFeature, TTrainingData>, TAllocator>::iterator_base(start), m_path(path) {}
-        path_iterator(const path_iterator& rhs) : tree<NodeData<TFeature, TTrainingData>, TAllocator>::iterator_base(rhs), m_path(rhs.m_path) {}
+        typedef iterator_base base;
 
-        path_iterator& operator++()
+        breadth_first_iterator() : iterator_base() {}
+        breadth_first_iterator(int n, TTree* t) : iterator_base(n, t)
         {
-            Base::node = (m_path & 1) ? Base::node->last_child : Base::node->first_child;
-            m_path >>= 1;
+            seek_used();
+        }
+
+        breadth_first_iterator& operator++()
+        {
+            ++base::node;
+            seek_used();
             return *this;
         }
-        bool operator ==(const path_iterator& rhs) const
+
+    private:
+        void seek_used()
         {
-            return Base::node == rhs.node;
+            // Skip any unused slots
+            while( base::valid() && (! base::used()) )
+                ++base::node;
+
+            if( !base::valid() )
+                base::node = -1;
         }
-        bool operator !=(const path_iterator& rhs) const
+    };
+
+    class leaf_iterator : public iterator_base
+    {
+    public:
+        typedef iterator_base base;
+
+        leaf_iterator() : iterator_base() {}
+        leaf_iterator(int n, TTree* t) : iterator_base(n, t)
         {
-            return !operator ==(rhs);
+            seek_used();
         }
-        operator bool() const
+
+        leaf_iterator& operator++()
         {
-            return Base::node != nullptr;
+            ++base::node;
+            seek_used();
+            return *this;
         }
-    protected:
-        Path m_path;
+
+    private:
+        void seek_used()
+        {
+            // Skip any unused slots and internal nodes
+            while( base::valid() && ( (!base::used()) || (base::number_of_children() != 0) ))
+                ++base::node;
+
+            if( !base::valid() )
+                base::node = -1;
+        }
     };
 
     test_time_iterator begin_test(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
     {
-        return test_time_iterator(TreeBase::head->next_sibling, x, y, preProcessed, offsets);
+        if ( size() > 0 )
+            return test_time_iterator(0, const_cast<TTree*>(this), x, y, preProcessed, offsets);
+        else
+            return end_test();
     }
+
     test_time_iterator end_test() const
     {
         return test_time_iterator();
     }
+
     test_time_iterator goto_leaf(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
     {
-        auto i = begin_test(x, y, preProcessed, offsets);
+        auto it = begin_test(x, y, preProcessed, offsets);
 
-        while(i.node->first_child != nullptr)
-            ++i;
+        while( it.number_of_children() > 0 )
+            ++it;
 
-        return i;
+        return it;
     }
-    Path find_path(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
+
+    breadth_first_iterator begin_breadth_first() const
     {
-        return goto_leaf(x, y, preProcessed, offsets).path();
+        if( size() > 0 )
+            return breadth_first_iterator(0, const_cast<TTree*>(this));
+        else
+            return end_breadth_first();
     }
-    path_iterator begin_path(Path path) const
+
+    breadth_first_iterator end_breadth_first() const
     {
-        return path_iterator(TreeBase::head->next_sibling, path);
+        return breadth_first_iterator();
     }
-    path_iterator end_path() const
+
+    leaf_iterator begin_leaf() const
     {
-        return path_iterator();
+        if( size() > 0 )
+            return leaf_iterator(0, const_cast<TTree*>(this));
+        else
+            return leaf_iterator();
     }
+
+    leaf_iterator end_leaf() const
+    {
+        return leaf_iterator();
+    }
+
+    iterator_base set_head(const value_type& value)
+    {
+        ensure_capacity(0);
+        nodes[0]   = value;
+        used[0]    = true;
+        num_nodes += 1;
+
+        return iterator_base(0, this);
+    }
+
+    template<typename iter> iter append_child(iter it, const value_type& x) const
+    {
+        int idx = -1;
+
+        if( it.left_child() == -1 )
+            idx = left_child_index(it.node);
+        else if ( it.right_child() == -1 )
+            idx = right_child_index(it.node);
+        else
+            throw std::runtime_error("Attempt to add more than two children to a node.");
+
+        ensure_capacity(idx);
+        nodes[idx] = x;
+        used[idx]  = true;
+        num_nodes += 1;
+
+        iter ret = it;
+        ret.node = idx;
+        return ret;
+    }
+
+    template<typename iter> iter append_child(iter it) const
+    {
+        return append_child(it, value_type());
+    }
+
+    static int depth(const iterator_base& i)
+    {
+        return static_cast<int>(std::log(i.node + 1.4)/std::log(2));
+    }
+
+    size_t size() const
+    {
+        return num_nodes;
+    }
+
+    value_type& operator[](size_t idx)
+    {
+        return nodes[idx];
+    }
+
+    const value_type& operator[](size_t idx) const
+    {
+        return nodes[idx];
+    }
+
+    Tree() : num_nodes(0) {}
+
+private:
+
+    int left_child(int parent_index) const
+    {
+        if( parent_index == -1 )
+            return -1;
+        else if ( left_child_index(parent_index) >= used.size() )
+            return -1;
+        else if ( ! used[left_child_index(parent_index)] )
+            return -1;
+        else
+            return left_child_index(parent_index);
+    }
+
+    int right_child(int parent_index) const
+    {
+        if( parent_index == -1 )
+            return -1;
+        else if ( right_child_index(parent_index) >= used.size() )
+            return -1;
+        else if ( ! used[right_child_index(parent_index)] )
+            return -1;
+        else
+            return right_child_index(parent_index);
+    }
+
+    static int left_child_index(int parent_index)
+    {
+        return 2 * parent_index + 1;
+    }
+
+    static int right_child_index(int parent_index)
+    {
+        return 2 * parent_index + 2;
+    }
+
+    int number_of_children( int node_index ) const
+    {
+        return static_cast<int>(left_child(node_index) != -1) + static_cast<int>(right_child(node_index) != -1);
+    }
+
+    void ensure_capacity(int node_index) const
+    {
+        nodes.resize(node_index+1);
+        used.resize(node_index+1);
+    }
+
+    mutable int num_nodes;
+    mutable std::vector<TNodeData, TAllocator> nodes;
+    mutable std::vector<bool, TAllocator> used;
 };
 
-template <typename TFeature, typename TTrainingData, typename TAllocator = std::allocator<tree_node_<NodeData<TFeature, TTrainingData> > > >
-struct Tree_
-{
-    typedef DecisionTree<TFeature, TTrainingData, TAllocator> Type;
-};
 
 template <typename TFeature, typename TTrainingData, typename TAllocator = std::allocator<tree_node_<NodeData<TFeature, TTrainingData> > > >
 class TreeRef
 {
 public:
-    typedef typename Tree_<TFeature, TTrainingData, TAllocator>::Type TBase;
+    typedef Tree<TFeature, TTrainingData, TAllocator> TBase;
 
     TreeRef() : m_p(new TBase()) {}
     TreeRef(const TreeRef& rhs) : m_p(rhs.m_p) {}
@@ -173,65 +386,53 @@ public:
     typedef typename TBase::iterator_base iterator_base;
     typedef typename TBase::leaf_iterator leaf_iterator;
     typedef typename TBase::test_time_iterator test_time_iterator;
-    typedef typename TBase::pre_order_iterator pre_order_iterator;
-    typedef typename TBase::breadth_first_queued_iterator breadth_first_queued_iterator;
+    typedef typename TBase::breadth_first_iterator breadth_first_iterator;
 
     static int depth(const iterator_base& i)
     {
         return TBase::depth(i);
     }
-    static unsigned int number_of_children(const iterator_base& i)
+
+    void set_head(const value_type& value)
     {
-        return TBase::number_of_children(i);
+        m_p->set_head(value);
     }
-    int max_depth() const
-    {
-        return m_p->max_depth();
-    }
-    bool empty() const
-    {
-        return m_p->empty();
-    }
-    pre_order_iterator set_head(const value_type& value) const
-    {
-        return m_p->set_head(value);
-    }
-    pre_order_iterator begin() const
-    {
-        return m_p->begin();
-    }
-    pre_order_iterator end() const
-    {
-        return m_p->end();
-    }
-    breadth_first_queued_iterator begin_breadth_first() const
+
+    breadth_first_iterator begin_breadth_first() const
     {
         return m_p->begin_breadth_first();
     }
-    breadth_first_queued_iterator end_breadth_first() const
+
+    breadth_first_iterator end_breadth_first() const
     {
         return m_p->end_breadth_first();
     }
-    template<typename iter> iter append_child(iter position, const value_type& x) const
+
+    template<typename iter> iter append_child(iter it, const value_type& x) const
     {
-        return m_p->append_child(position, x);
+        return m_p->append_child(it, x);
     }
-    template<typename iter> iter append_child(iter position) const
+
+    template<typename iter> iter append_child(iter it) const
     {
-        return m_p->append_child(position);
+        return m_p->append_child(it);
     }
+
     leaf_iterator begin_leaf() const
     {
         return m_p->begin_leaf();
     }
+
     leaf_iterator end_leaf() const
     {
         return m_p->end_leaf();
     }
+
     test_time_iterator goto_leaf(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
     {
         return m_p->goto_leaf(x, y, preProcessed, offsets);
     }
+
     size_t size() const
     {
         return m_p->size();
@@ -245,7 +446,11 @@ template <typename TFeature, typename TTrainingData, typename TAllocator = std::
 class TreeCRef
 {
 public:
-    typedef typename Tree_<TFeature, TTrainingData, TAllocator>::Type TBase;
+    typedef Tree<TFeature, TTrainingData, TAllocator> TBase;
+    typedef typename TBase::value_type value_type;
+    typedef typename TBase::iterator_base iterator_base;
+    typedef typename TBase::test_time_iterator test_time_iterator;
+    typedef typename TBase::breadth_first_iterator breadth_first_iterator;
 
     TreeCRef() : m_p(new TBase()) {}
     TreeCRef(const TreeRef<TFeature, TTrainingData, TAllocator>& rhs) : m_p(rhs.Ref()) {}
@@ -256,124 +461,25 @@ public:
         return *this;
     }
 
-    typedef unsigned int Path;
-    typedef typename TBase::value_type value_type;
-
-    typedef typename TBase::iterator_base iterator_base;
-    typedef typename TBase::test_time_iterator test_time_iterator;
-    typedef typename TBase::leaf_iterator leaf_iterator;
-    typedef typename TBase::pre_order_iterator pre_order_iterator;
-    typedef typename TBase::breadth_first_queued_iterator breadth_first_queued_iterator;
-
-    static int depth(const iterator_base& i)
-    {
-        return TBase::depth(i);
-    }
-    static unsigned int number_of_children(const iterator_base& i)
-    {
-        return TBase::number_of_children(i);
-    }
-    bool empty() const
-    {
-        return m_p->empty();
-    }
-    int max_depth() const
-    {
-        return m_p->max_depth();
-    }
-    pre_order_iterator begin() const
-    {
-        return m_p->begin();
-    }
-    pre_order_iterator end() const
-    {
-        return m_p->end();
-    }
-    leaf_iterator begin_leaf() const
-    {
-        return m_p->begin_leaf();
-    }
-    leaf_iterator end_leaf() const
-    {
-        return m_p->end_leaf();
-    }
-    breadth_first_queued_iterator begin_breadth_first() const
+    breadth_first_iterator begin_breadth_first() const
     {
         return m_p->begin_breadth_first();
     }
-    breadth_first_queued_iterator end_breadth_first() const
+    breadth_first_iterator end_breadth_first() const
     {
         return m_p->end_breadth_first();
-    }
-    test_time_iterator begin_test(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
-    {
-        return m_p->begin_test(x, y, preProcessed, offsets);
-    }
-    test_time_iterator end_test() const
-    {
-        return m_p->end_test();
     }
     test_time_iterator goto_leaf(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
     {
         return m_p->goto_leaf(x, y, preProcessed, offsets);
     }
-    Path find_path(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
-    {
-        return m_p->find_path(x, y, preProcessed, offsets);
-    }
     size_t size() const
     {
         return m_p->size();
     }
-
-    template <typename TOp>
-    void WalkTreeData(int x, int y, const typename TFeature::PreProcessType& prep, const VecCRef<Vector2D<int> >& offsets, TOp& op) const
-    {
-        for(auto i = begin_test(x, y, prep, offsets); i; ++i)
-            op(i->data);
-
-        //if (empty())
-        //   return;
-        //auto node = begin().node;
-        //op(node->data.data);
-        //while (node->first_child != nullptr)
-        //{
-        //   bool b = node->data.feature(x, y, prep);
-        //   node = b ? node->last_child : node->first_child;
-        //   op(node->data.data);
-        //}
-    }
-
-#if 0
-    template <typename TOp>
-    void WalkPathData(Path path, TOp& op) const
-    {
-        for(auto i = begin_path(path); i; ++i)
-            op(i->data);
-
-        //auto node = begin().node;
-        //op(node->data.data);
-        //while (node->first_child != nullptr)
-        //{
-        //   node = (path & 1) ? node->last_child : node->first_child;
-        //   path >>= 1;
-        //   op(node->data.data);
-        //}
-    }
-#endif
-
     const TTrainingData& GetLeafData(int x, int y, const typename TFeature::PreProcessType& prep, const VecCRef<Vector2D<int> >& offsets) const
     {
         return goto_leaf(x, y, prep, offsets)->data;
-        //if (empty())
-        //   throw std::exception("Empty tree");
-        //auto node = begin().node;
-        //while (node->first_child != nullptr)
-        //{
-        //   bool b = node->data.feature(x, y, prep);
-        //   node = b ? node->last_child : node->first_child;
-        //}
-        //return node->data.data;
     }
 
 private:
@@ -383,15 +489,7 @@ private:
 class TreeTable
 {
 public:
-    typedef int Path;
-    static const Path BadPath = -1;
-    typedef unsigned int NodeId;
     virtual ~TreeTable() {}
-    virtual unsigned int GetSizeofEntry() const = 0;
-    virtual unsigned int GetSizeofTrainingData() const = 0;
-    virtual unsigned int GetSizeofFeature() const = 0;
-    virtual unsigned int GetEntryCount() const = 0;
-    virtual unsigned char* GetFirstData() = 0;
 };
 
 template <typename TFeature, typename TTrainingData>
@@ -421,64 +519,6 @@ public:
         }
     }
 
-    template <typename T2, typename TOp>
-    TreeRef<TFeature, T2> BuildTree(TOp& op) const
-    {
-        TreeRef<TFeature, T2> tree;
-
-        if(m_entries.empty())
-            return tree;
-
-        tree.set_head(NodeData<TFeature, T2>());
-        auto i = tree.begin_breadth_first();
-
-        for(unsigned int entry = 0; entry < m_entries.size(); entry++, ++i)
-        {
-            i->feature = m_entries[entry].feature;
-            i->data = op(m_entries[entry].data);
-
-            if(m_entries[entry].entrySkip >= 0)
-            {
-                tree.append_child(i);
-                tree.append_child(i);
-            }
-        }
-    }
-
-    template <typename TOutput>
-    void WalkTree(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets, TOutput& output) const
-    {
-        // For each pixel independently,
-        // walk the tree, and tell the output object which
-        // nodes are being visited.
-        const Entry* pEntry = &m_entries[0];
-
-        while(pEntry->entrySkip >= 0)
-        {
-            output(pEntry->data);
-            bool b = pEntry->feature(x, y, preProcessed, offsets);
-            pEntry += pEntry->entrySkip + b;
-        }
-
-        output(pEntry->data);
-    }
-
-    Path FindPath(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
-    {
-        Path path = 0, mask = 1;
-        const Entry* pEntry = &m_entries[0];
-
-        while(pEntry->entrySkip >= 0)
-        {
-            bool b = pEntry->feature(x, y, preProcessed, offsets);
-            path |= mask & (-(Path)b);
-            pEntry += pEntry->entrySkip + b;
-            mask <<= 1;
-        }
-
-        return path;
-    }
-
     // Returns the index of the leaf node, using a breadth-first numbering
     TTrainingData GetLeafData(int x, int y, const typename TFeature::PreProcessType& preProcessed, const VecCRef<Vector2D<int> >& offsets) const
     {
@@ -491,73 +531,6 @@ public:
         }
 
         return pEntry->data;
-    }
-
-    template <typename TOutput>
-    void WalkPath(Path path, TOutput& output) const
-    {
-        int entry = 0;
-        const Entry* pEntry = &m_entries[0];
-
-        while(pEntry->entrySkip >= 0)
-        {
-            output(entry, pEntry->data);
-            int skip = pEntry->entrySkip + (path & 1);
-            entry += skip;
-            pEntry += skip;
-            path >>= 1;
-        }
-
-        output(entry, pEntry->data);
-    }
-
-    template <typename TOutput>
-    void WalkPath(Path path, TOutput& output)
-    {
-        int entry = 0;
-        Entry* pEntry = &m_entries[0];
-
-        while(pEntry->entrySkip >= 0)
-        {
-            output(entry, pEntry->data);
-            int skip = pEntry->entrySkip + (path & 1);
-            entry += skip;
-            pEntry += skip;
-            path >>= 1;
-        }
-
-        output(entry, pEntry->data);
-    }
-
-    unsigned int GetSizeofEntry() const
-    {
-        return sizeof(Entry);
-    }
-    unsigned int GetSizeofTrainingData() const
-    {
-        return sizeof(TTrainingData);
-    }
-    unsigned int GetSizeofFeature() const
-    {
-        return sizeof(TFeature);
-    }
-    unsigned int GetEntryCount() const
-    {
-        return (unsigned int)m_entries.size();
-    }
-    unsigned char* GetFirstData()
-    {
-        return (unsigned char*)&m_entries[0].data;
-    }
-
-    void ZeroData()
-    {
-        unsigned int size = sizeof(TTrainingData);
-
-        for(auto it = m_entries.begin(); it != m_entries.end(); ++it)
-        {
-            memset(&(it->data), 0, size);
-        }
     }
 
 protected:
@@ -573,53 +546,4 @@ protected:
     std::vector<Entry> m_entries;
 };
 
-template <unsigned char variableCount, unsigned char labelCount> struct power
-{
-    static const unsigned int raise;
-};
-template <unsigned char labelCount> struct power<1, labelCount>
-{
-    static const unsigned int raise = labelCount;
-};
-template <unsigned char labelCount> struct power<2, labelCount>
-{
-    static const unsigned int raise = labelCount * labelCount;
-};
-// t-shaib
-template <unsigned char labelCount> struct power<3, labelCount>
-{
-    static const unsigned int raise = labelCount * labelCount * labelCount;
-};
-template <unsigned char labelCount> struct power<4, labelCount>
-{
-    static const unsigned int raise = labelCount * labelCount * labelCount * labelCount;
-};
-template <unsigned char labelCount> struct power<5, labelCount>
-{
-    static const unsigned int raise = labelCount * labelCount * labelCount * labelCount * labelCount;
-};
-
-template <unsigned char labelCount> struct power<6, labelCount>
-{
-    static const unsigned int raise = labelCount * labelCount * labelCount *
-                                      labelCount * labelCount * labelCount;
-};
-template <unsigned char labelCount> struct power<7, labelCount>
-{
-    static const unsigned int raise = labelCount * labelCount * labelCount * labelCount *
-                                      labelCount * labelCount * labelCount ;
-};
-template <unsigned char labelCount> struct power<8, labelCount>
-{
-    static const unsigned int raise = labelCount * labelCount * labelCount * labelCount *
-                                      labelCount * labelCount * labelCount * labelCount;
-};
-#if 0
-// XXX: -sn removed, this creates an integral constant overflow
-template <unsigned char labelCount> struct power<9, labelCount>
-{
-    static const unsigned int raise = labelCount * labelCount * labelCount *
-                                      labelCount * labelCount * labelCount *
-                                      labelCount * labelCount * labelCount;
-};
-#endif
+#endif // H_RTF_TREES_H

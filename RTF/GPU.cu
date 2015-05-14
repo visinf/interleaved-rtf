@@ -1,3 +1,14 @@
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: GPU.cu
+ * Implementation of RTF inference on a GPU. Requires CUDA SDK and CUSP.
+ *
+ */
+
 #include <cusp/array1d.h>
 #include <cusp/coo_matrix.h>
 #include <cusp/dia_matrix.h>

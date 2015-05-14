@@ -1,5 +1,16 @@
-#ifndef _H_LOSS_H_
-#define _H_LOSS_H_
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Loss.h
+ * Defines common loss functions and methods for evaluating them on images.
+ *
+ */
+
+#ifndef H_RTF_LOSS_H
+#define H_RTF_LOSS_H
 
 #include <iostream>
 #include <stdexcept>
@@ -20,10 +31,9 @@ namespace Loss
     // Loss tags. Use these as the template argument of the Learn() method of the BoostedRTF class
     // to specify the objective function that is optimized by functional gradient descent.
 
-
     // The classic mean squared error criterion for continuous prediction tasks
     class MSE;
-    class MSEcenter20;
+
 
     // Robust outlier-resistant "Lorentzian loss" with respect to the prediction,
     //
@@ -65,7 +75,6 @@ namespace Loss
 
     // Peak signal-to-noise ratio
     class PSNR;
-    class PSNRcenter20;
 
     // Mean absolute error, differentiable
     class MAD;
@@ -74,8 +83,13 @@ namespace Loss
     // True mean absolute error
     class MAE;
 
+    // Energy-based convex surrogate loss functions leading to a convex parameter estimation problem;
+    // these only make sense at training time.
     class ContinuousPerceptron;
     class ContinuousMeanField;
+
+    // The loss of the max-margin learning objective based on the convex QP relaxation described in
+    // Jancsary et al. (ICML 2013). Meant to be used for discrete variables.
     class DiscreteHamming;
 
     template<typename TTraits, typename TLoss>
@@ -88,15 +102,16 @@ namespace Loss
         // Objective(ground, prediction)
         // Gradient(groud, prediction, &gradient)
         // static NormalizationConstant(img)
-        // static MaxLineSearchIterations() == 200 (?!)
         // static Name()
+        // static RequiresDiscreteInference()
 
         // Accumulates pointwise losses using function
         template<typename TTraits, typename TFunc>
         typename TTraits::ValueType PointwiseObjectiveHelper(const
                 ImageRefC<typename TTraits::UnaryGroundLabel>& ground, const
                 ImageRefC<typename TTraits::UnaryGroundLabel>& prediction,
-                const TFunc& func) {
+                const TFunc& func)
+        {
             const auto cy = ground.Height(), cx = ground.Width();
             const auto cc = TTraits::UnaryGroundLabel::Size;
             typename TTraits::ValueType loss = 0;
@@ -120,145 +135,6 @@ namespace Loss
 
             return loss;
         }
-
-	template<typename TTraits>
-        struct MSEcenter20
-        {
-            static typename TTraits::ValueType
-            Objective(const ImageRefC<typename TTraits::UnaryGroundLabel>& ground,
-                      const ImageRefC<typename TTraits::UnaryGroundLabel>& prediction)
-            {
-                const auto cy = ground.Height(), cx = ground.Width();
-                const auto cc = TTraits::UnaryGroundLabel::Size;
-                typename TTraits::ValueType loss = 0;		
-
-                #pragma omp parallel for
-                for(int y = 20; y < cy-20; ++y)
-                {
-                    typename TTraits::ValueType lineLoss = 0;
-
-                    for(int x = 20; x < cx-20; ++x)
-                    {
-                        for(int c = 0; c < cc; ++c)
-                        {
-                            auto delta = ground(x, y)[c] - prediction(x, y)[c];
-                            lineLoss  += delta * delta;
-                        }
-                    }
-
-                    #pragma omp atomic
-                    loss += lineLoss;
-                }
-
-                return loss;
-            }
-
-            static void
-            Gradient(const ImageRefC<typename TTraits::UnaryGroundLabel>& ground,
-                     const ImageRefC<typename TTraits::UnaryGroundLabel>& prediction,
-                     const ImageRef<typename TTraits::UnaryGroundLabel>& gradient)
-            {
-                const auto cy = ground.Height(), cx = ground.Width();
-                const auto cc = TTraits::UnaryGroundLabel::Size;
-
-		// fill gradient with zeros to be safe
-                #pragma omp parallel for
-                for(int y = 0; y < cy; ++y)                
-		  for(int x = 0; x < cx; ++x)                    
-		    for(int c = 0; c < cc; ++c)                        
-		      gradient(x, y)[c] = 0;                        
-
-                #pragma omp parallel for
-                for(int y = 20; y < cy-20; ++y)
-                {
-                    for(int x = 20; x < cx-20; ++x)
-                    {
-                        for(int c = 0; c < cc; ++c)
-                        {
-                            auto delta       = ground(x, y)[c] - prediction(x, y)[c];
-                            gradient(x, y)[c] = -2.0 * delta;
-                        }
-                    }
-                }
-            }
-
-            static typename TTraits::ValueType NormalizationConstant(const ImageRefC<typename TTraits::UnaryGroundLabel>& ground)
-            {
-	      return (ground.Width()-2*20)*(ground.Height()-2*20)*TTraits::UnaryGroundLabel::Size;	      
-            }
-
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
-            static const char* Name()
-            {
-                return "MSEcenter(20)";
-            }
-
-            static bool RequiresDiscreteInference()
-            {
-                return false;
-            }
-        };
-
-	template<typename TTraits>
-        struct PSNRcenter20
-        {
-            static typename TTraits::ValueType
-            Objective(const ImageRefC<typename TTraits::UnaryGroundLabel>& ground,
-                      const ImageRefC<typename TTraits::UnaryGroundLabel>& prediction)
-            {
-                const auto cy = ground.Height(), cx = ground.Width();
-                const auto cc = TTraits::UnaryGroundLabel::Size;
-                const auto loss = MSEcenter20<TTraits>::Objective(ground, prediction);
-		const auto nconst = MSEcenter20<TTraits>::NormalizationConstant(ground);
-                return 10.0 * (std::log10(loss) - std::log10(nconst));
-            }
-
-            static void
-            Gradient(const ImageRefC<typename TTraits::UnaryGroundLabel>& ground,
-                     const ImageRefC<typename TTraits::UnaryGroundLabel>& prediction,
-                     const ImageRef<typename TTraits::UnaryGroundLabel>& gradient)
-            {
-                const auto cy = ground.Height(), cx = ground.Width();
-                const auto cc = TTraits::UnaryGroundLabel::Size;
-                MSEcenter20<TTraits>::Gradient(ground, prediction, gradient);
-                const auto loss  = MSEcenter20<TTraits>::Objective(ground, prediction);
-                const auto scale = 10.0 / (loss * std::log(10.0));
-
-                #pragma omp parallel for
-                for(int y = 0; y < cy; ++y)
-                {
-                    for(int x = 0; x < cx; ++x)
-                    {
-                        for(int c = 0; c < cc; ++c)
-                        {
-                            gradient(x, y)[c] *= scale;
-                        }
-                    }
-                }
-            }
-
-            static typename TTraits::ValueType NormalizationConstant(const ImageRefC<typename TTraits::UnaryGroundLabel>& ground)
-            {
-                return 1;
-            }
-
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
-            static const char* Name()
-            {
-                return "PSNRcenter(20)";
-            }
-
-            static bool RequiresDiscreteInference()
-            {
-                return false;
-            }
-        };
 
         template<typename TTraits>
         struct MSE
@@ -319,10 +195,6 @@ namespace Loss
                 return ground.Width() * ground.Height() * TTraits::UnaryGroundLabel::Size;
             }
 
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
             static const char* Name()
             {
                 return "MSE";
@@ -335,7 +207,7 @@ namespace Loss
         };
 
         // Mean absolute error, differentiable - assumes pixel values range from 0.0 to 1.0
-        // This is straight from the paper of Tappen
+        // This is straight from the Tappen et al. (CVPR 2007)
         template<typename TTraits>
         struct MAD
         {
@@ -460,10 +332,6 @@ namespace Loss
                 return ground.Width() * ground.Height() * TTraits::UnaryGroundLabel::Size;
             }
 
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
             static const char* Name()
             {
                 return "MAE";
@@ -512,10 +380,6 @@ namespace Loss
                 return 1;
             }
 
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
             static const char* Name()
             {
                 return "PSNR";
@@ -597,10 +461,6 @@ namespace Loss
                 return ground.Width() * ground.Height() * TTraits::UnaryGroundLabel::Size;
             }
 
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
             static const char* Name()
             {
                 return "Lorentzian";
@@ -746,10 +606,6 @@ namespace Loss
                 return observed;
             }
 
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
             static const char* Name()
             {
                 return "MultiNomialLogistic";
@@ -803,8 +659,6 @@ namespace Loss
                                 predictedState = c;
                             }
                         }
-                        //if( std::fabs(maxPred - 1.0) > 1e-4 )
-                        //std::cerr << "predicted: " << maxPred << std::endl;
 
                         // Every mis-predicted pixel counts equally as 1.0
                         lineLoss += (observedState == predictedState) ? 0.0 : 1.0;
@@ -853,10 +707,6 @@ namespace Loss
                 return observed;
             }
 
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
             static const char* Name()
             {
                 return "PerPixelError";
@@ -979,10 +829,6 @@ namespace Loss
                 return (ground.Width() - (WD - 1)) * (ground.Height() - (WD - 1)) * TTraits::UnaryGroundLabel::Size;
             }
 
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
             static const char* Name()
             {
                 return "SSIM";
@@ -1147,10 +993,6 @@ namespace Loss
                 return sum;
             }
 
-            static int MaxLineSearchEvaluations()
-            {
-                return 200;
-            }
             static const char* Name()
             {
                 return "IWSSIM";
@@ -1169,18 +1011,6 @@ namespace Loss
         struct LossDispatcher
         {
             typedef ::Loss::Detail::MSE<TTraits> Loss;
-        };
-
-	template<typename TTraits>
-        struct LossDispatcher<TTraits, ::Loss::MSEcenter20>
-        {
-            typedef ::Loss::Detail::MSEcenter20<TTraits> Loss;
-        };
-
-	template<typename TTraits>
-        struct LossDispatcher<TTraits, ::Loss::PSNRcenter20>
-        {
-            typedef ::Loss::Detail::PSNRcenter20<TTraits> Loss;
         };
 
         template<typename TTraits>
@@ -1356,7 +1186,8 @@ namespace Loss
         {
             typename TTraits::ValueType loss = 0;
 
-            for(size_t i = 0; i < db.GetImageCount(); ++i) {
+            for(size_t i = 0; i < db.GetImageCount(); ++i)
+            {
                 const auto gt = db.GetGroundTruthImage(i);
                 loss += LossImpl::NormalizationConstant(gt);
             }
@@ -1617,8 +1448,6 @@ namespace Loss
         static typename TTraits::ValueType
         ConstantContribution(const ImageRefC<typename TTraits::UnaryGroundLabel>& ystar)
         {
-            //const auto v = Utility::SolutionFromLabeling<TTraits>(ystar);
-            //return - 0.5 * 0.0099 * v.dot(v);
             return 0.0;
         }
 
@@ -1627,15 +1456,12 @@ namespace Loss
                                         Compute::SystemVectorRef<typename TTraits::ValueType, TTraits::UnaryGroundLabel::Size>& Qyhat,
                                         Compute::SystemVectorCRef<typename TTraits::ValueType, TTraits::UnaryGroundLabel::Size>& yhat)
         {
-            //Qyhat.Raw() -= 0.5 * 0.0099 * 2.0 * yhat.Raw();
-            //std::cerr << "Multiplying " << std::endl;
         }
 
         static void
         AddInLinearContribution(const ImageRefC<typename TTraits::UnaryGroundLabel>& ystar,
                                 Compute::SystemVectorRef<typename TTraits::ValueType, TTraits::UnaryGroundLabel::Size>& l)
         {
-            //l.Raw() -= 0.5 * 0.0099 * 2.0 * Utility::SolutionFromLabeling<TTraits>(ystar);
         }
 
         static typename TTraits::ValueType NormalizationConstant(const ImageRefC<typename TTraits::UnaryGroundLabel>& ground)
@@ -1686,4 +1512,4 @@ namespace Loss
     };
 }
 
-#endif // _H_LOSS_H_
+#endif // H_RTF_LOSS_H

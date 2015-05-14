@@ -1,11 +1,16 @@
-// File:   Pairwise.h
-// Author: t-jejan
-//
-// Implements all functionality that is specific to pairwise factors. This file only contains
-// implementation details that usually need not be accessed by a user.
-//
-#ifndef _H_PAIRWISE_H_
-#define _H_PAIRWISE_H_
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Pairwise.h
+ * Implements all functionality related to pairwise factors in a regression tree field.
+ *
+ */
+
+#ifndef H_RTF_PAIRWISE_H
+#define H_RTF_PAIRWISE_H
 
 #include <vector>
 #include <cstring>
@@ -78,62 +83,6 @@ namespace Pairwise
                 w->GetGq().template bottomLeftCorner < VarDim / 2, VarDim / 2 > ()  += muLossGradient(j) * (muPrediction(i).transpose() * scale * bq);
                 w->GetGq().template bottomRightCorner < VarDim / 2, VarDim / 2 > () += muLossGradient(j) * (muPrediction(j).transpose() * scale * bq);
             }
-
-#if 0
-            void AccumulateGradient(const TSystemVectorCRef& yRef, const std::vector<TSolution>& muPrediction, const std::vector<TSolution>& muLossGradient,
-                                    TValue normC, TWeights* w) const
-            {
-                const auto N = muPrediction.size()-1;
-                const auto cx = yRef.Width(), cy = yRef.Height();
-                const auto scale = 1.0/normC;
-
-                for( int k = N-1; k >=0; --k )
-                {
-                    const TSystemVectorCRef muPrevPredictionRef(cx, cy, muPrediction[k]);
-                    const TSystemVectorCRef muPredictionRef(cx, cy, muPrediction[k+1]);
-                    const TSystemVectorCRef muLossGradientRef(cx, cy, muLossGradient[k+1]);
-
-                    const TCondMatrix diag_i = (muLossGradientRef(i).array() * (muPredictionRef(i) - muPrevPredictionRef(i)).array()).matrix().asDiagonal();
-                    const TCondMatrix diag_j = (muLossGradientRef(j).array() * (muPredictionRef(j) - muPrevPredictionRef(j)).array()).matrix().asDiagonal();
-
-                    w->GetGl().template topRows < VarDim / 2 > ()               += scale * (muLossGradientRef(i) * b.transpose());
-                    w->GetGl().template bottomRows < VarDim / 2 > ()            += scale * (muLossGradientRef(j) * b.transpose());
-
-                    w->GetGq().template topLeftCorner<VarDim/2, VarDim/2>()     += (scale*bq) * (muLossGradientRef(i) * muPrevPredictionRef(i).transpose() + diag_i);
-                    w->GetGq().template topRightCorner<VarDim/2, VarDim/2>()    += (scale*bq) * (muLossGradientRef(i) * muPrevPredictionRef(j).transpose());
-                    w->GetGq().template bottomLeftCorner<VarDim/2, VarDim/2>()  += (scale*bq) * (muLossGradientRef(j) * muPrevPredictionRef(i).transpose());
-                    w->GetGq().template bottomRightCorner<VarDim/2, VarDim/2>() += (scale*bq) * (muLossGradientRef(j) * muPrevPredictionRef(j).transpose() + diag_j);
-                }
-            }
-#endif
-
-#if 0
-            void AccumulateGradient(const TSystemVectorCRef& yRef, const std::vector<TSolution>& muPrediction, const std::vector<TSolution>& muLossGradient,
-                                    TValue normC, TWeights* w) const
-            {
-                const auto N = muPrediction.size()-1;
-                const auto cx = yRef.Width(), cy = yRef.Height();
-                const auto scale = 1.0/normC;
-
-                for( int k = N-1; k >=0; --k )
-                {
-                    const TSystemVectorCRef muPrevPredictionRef(cx, cy, muPrediction[k]);
-                    const TSystemVectorCRef muPredictionRef(cx, cy, muPrediction[k+1]);
-                    const TSystemVectorCRef muLossGradientRef(cx, cy, muLossGradient[k+1]);
-
-                    const auto diag_i = muLossGradientRef(i) * (muPredictionRef(i) - muPrevPredictionRef(i)).transpose();
-                    const auto diag_j = muLossGradientRef(j) * (muPredictionRef(j) - muPrevPredictionRef(j)).transpose();
-
-                    w->GetGl().template topRows < VarDim / 2 > ()               += scale * (muLossGradientRef(i) * b.transpose());
-                    w->GetGl().template bottomRows < VarDim / 2 > ()            += scale * (muLossGradientRef(j) * b.transpose());
-
-                    w->GetGq().template topLeftCorner<VarDim/2, VarDim/2>()     += (scale*bq) * (muLossGradientRef(i) * muPrevPredictionRef(i).transpose() + diag_i);
-                    w->GetGq().template topRightCorner<VarDim/2, VarDim/2>()    += (scale*bq) * (muLossGradientRef(i) * muPrevPredictionRef(j).transpose());
-                    w->GetGq().template bottomLeftCorner<VarDim/2, VarDim/2>()  += (scale*bq) * (muLossGradientRef(j) * muPrevPredictionRef(i).transpose());
-                    w->GetGq().template bottomRightCorner<VarDim/2, VarDim/2>() += (scale*bq) * (muLossGradientRef(j) * muPrevPredictionRef(j).transpose() + diag_j);
-                }
-            }
-#endif
 
             void AccumulateGradient(const TSystemVectorCRef& yRef, const std::vector<TSolution>& muPrediction, const std::vector<TSolution>& muLossGradient,
                                     TValue normC, TWeights* w) const
@@ -236,9 +185,9 @@ namespace Pairwise
                 p->Locked([&]()
                 {
                     const auto scale = 1.0/static_cast<TValue>(numSubgraphs);
-                    //		    p->GetGl().template topRows<VarDim/2>()                 += (scale * (y_i  - y_i)) * b.transpose();
+                    //          p->GetGl().template topRows<VarDim/2>()                 += (scale * (y_i  - y_i)) * b.transpose();
                     p->GetGl().template bottomRows < VarDim / 2 > ()                    += (scale * (mu_j - y_j)) * b.transpose();
-                    //		    p->GetGq().template topLeftCorner<VarDim/2,VarDim/2>()  += scale * 0.5 * (y_i  * y_i.transpose()  - y_i * y_i.transpose());
+                    //          p->GetGq().template topLeftCorner<VarDim/2,VarDim/2>()  += scale * 0.5 * (y_i  * y_i.transpose()  - y_i * y_i.transpose());
                     p->GetGq().template topRightCorner < VarDim / 2, VarDim / 2 > ()    += (scale * 0.5 * bq) * (y_i  * mu_j.transpose() - y_i * y_j.transpose());
                     p->GetGq().template bottomLeftCorner < VarDim / 2, VarDim / 2 > ()  += (scale * 0.5 * bq) * (mu_j * y_i.transpose()  - y_j * y_i.transpose());
                     p->GetGq().template bottomRightCorner < VarDim / 2, VarDim / 2 > () += (scale * 0.5 * bq) * (Sigma_j                 - y_j * y_j.transpose());
@@ -277,11 +226,11 @@ namespace Pairwise
                 {
                     const auto scale = 1.0 / static_cast<TValue>(numSubgraphs);
                     p->GetGl().template topRows < VarDim / 2 > ()                           += (scale * (mu_j - y_j)) * b.transpose();
-                    //		    p->GetGl().template bottomRows<VarDim/2>()                  += (scale * (y_k  - y_k)) * b.transpose();
+                    //          p->GetGl().template bottomRows<VarDim/2>()                  += (scale * (y_k  - y_k)) * b.transpose();
                     p->GetGq().template topLeftCorner < VarDim / 2, VarDim / 2 > ()         += (scale * bq * 0.5) * (Sigma_j                 - y_j * y_j.transpose());
                     p->GetGq().template topRightCorner < VarDim / 2, VarDim / 2 > ()        += (scale * bq * 0.5) * (mu_j * y_k.transpose()  - y_j * y_k.transpose());
                     p->GetGq().template bottomLeftCorner < VarDim / 2, VarDim / 2 > ()      += (scale * bq * 0.5) * (y_k  * mu_j.transpose() - y_k * y_j.transpose());
-                    //		    p->GetGq().template bottomRightCorner<VarDim/2,VarDim/2>()  += (scale * bq * 0.5) * (y_k  * y_k.transpose()  - y_k * y_k.transpose());
+                    //          p->GetGq().template bottomRightCorner<VarDim/2,VarDim/2>()  += (scale * bq * 0.5) * (y_k  * y_k.transpose()  - y_k * y_k.transpose());
                 });
             }
 
@@ -652,4 +601,4 @@ namespace Pairwise
     };
 }
 
-#endif // _H_PAIRWISE_H_
+#endif // H_RTF_PAIRWISE_H

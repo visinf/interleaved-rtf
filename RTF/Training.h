@@ -1,41 +1,16 @@
-// File:   Training.h
-// Author: t-jejan
-//
-// Implements basic regression tree training.
-//
-// The following model traits are of main importance:
-//
-//   UnarySplittingCriterion    -- determines the criterion used for splitting of unary trees
-//   PairwiseSplittingCriterion -- determines the criterion used for splitting of pairwise trees
-//
-// By default, the simple SquaredResidualsCriterion is used.
-//
-// The following API functions are provided to train regression trees from data.
-//
-// - LearnUnaryRegressionTree()
-//     Learns a unary regression tree from all data points provided by the dataset.
-// - LearnRegressionForest()
-//     Learns an ensemble of unary regression trees from all data points provided by the dataset.
-// - LearnUnaryRegressionTreeSubsample()
-//     Subsampling variant of the above; the dataset class must implement the subsampling interface.
-// - LearnRegressionForestSubsample()
-//     Subsampling variant of the above; the dataset class must implement the subsampling interface.
-// - LearnPairwiseRegressionTree()
-//     Learns a pairwise regression tree from all data points provide by the dataset.
-// - LearnPairwiseRegressionTreeSubsample()
-//     Subsampling variant of the above; the dataset class must implement the subsampling interface.
-//
-//  For unary regression trees/forests, the means at the leaves can be re-estimated from a larger amount
-//  of training data after the structure of the trees has been learned.
-//
-//  - EstimateMeansAtLeaves()
-//
-//  See below for details.
-//
-#ifndef _H_TRAINING_H
-#define _H_TRAINING_H
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Training.h
+ * Implements algorithms for training of regression trees.
+ *
+ */
 
-//#define DUMP_EACH_LEVEL "c:\\dev\\TreeDump\\"
+#ifndef H_RTF_TRAINING_H
+#define H_RTF_TRAINING_H
 
 #include <array>
 #include <limits>
@@ -51,11 +26,6 @@
 #include "Image.h"
 #include "Criteria.h"
 #include "Utility.h"
-
-#ifdef DUMP_EACH_LEVEL
-size_t currentLevel;
-std::ofstream dumpStream;
-#endif
 
 namespace Training
 {
@@ -339,16 +309,15 @@ namespace Training
                 Base::bestFeature = feature.WithThreshold(rightBinBoundaries[bestIndex]);
         }
 
-        template<size_t BufSize>
         void CheckForBetterSplitDegenerate(const TFeature& feature)
         {
-            std::array<TValue,               BufSize> responses;
-            std::array<TValue,               BufSize> rightBinBoundaries;
-            std::array<SufficientStatistics, BufSize> statistics;
-            std::array<SufficientStatistics, BufSize> leftUpTo;
-            std::array<SufficientStatistics, BufSize> rightUpTo;
-            const size_t NumEntries = Base::entries.size(); // only the first NumEntries elements of the above arrays will be used
-            assert(BufSize >= NumEntries);
+            const size_t NumEntries = Base::entries.size();
+
+            std::vector<TValue>               responses(NumEntries);
+            std::vector<TValue>               rightBinBoundaries(NumEntries);
+            std::vector<SufficientStatistics> statistics(NumEntries);
+            std::vector<SufficientStatistics> leftUpTo(NumEntries);
+            std::vector<SufficientStatistics> rightUpTo(NumEntries);
 
             // Pre-compute the response values of all entries
             for(size_t i = 0; i < NumEntries; ++i)
@@ -389,10 +358,10 @@ namespace Training
 
         void CheckForBetterSplit(const TFeature& feature)
         {
-            std::array < TValue,               NumTests + 1 > rightBinBoundaries;
-            std::array < SufficientStatistics, NumTests + 1 > statistics;
-            std::array < SufficientStatistics, NumTests + 1 > leftUpTo;
-            std::array < SufficientStatistics, NumTests + 1 > rightUpTo;
+            std::vector < TValue > rightBinBoundaries(NumTests+1);
+            std::vector < SufficientStatistics > statistics(NumTests+1);
+            std::vector < SufficientStatistics > leftUpTo(NumTests+1);
+            std::vector < SufficientStatistics > rightUpTo(NumTests+1);
 
             // Determine bin boundaries
             for(size_t t = 0; t < NumTests; ++t)
@@ -404,17 +373,15 @@ namespace Training
 
             rightBinBoundaries.back() = std::numeric_limits<typename TSplitCriterion::TValue>::max();
 
-#if 1
             // Protect against worst-case scenario where all sampled responses are exactly equal;
             // this can occur quite frequently for imbalanced discrete labels (but then again, you shouldn't use the thresholding
             // training variant for discrete problems)
-            // TODO: maybe there is a better way of handling this situation?
             const auto front    = rightBinBoundaries.front();
             auto unequalToFront = std::count_if(rightBinBoundaries.begin() + 1, rightBinBoundaries.end() - 1, [ = ](TValue v)->bool { return v != front; });
 
             if(unequalToFront == 0)
             {
-                // Simply scan through entries one after another until we fo und a different response.
+                // Simply scan through entries one after another until we found a different response.
                 for(size_t t = 0; t < Base::entries.size() && front == rightBinBoundaries.front(); ++t)
                 {
                     const auto& entry = Base::entries[t];
@@ -422,7 +389,6 @@ namespace Training
                 }
             }
 
-#endif
             // Sort bins for efficient lookup
             std::sort(rightBinBoundaries.begin(), rightBinBoundaries.end());
 
@@ -450,7 +416,7 @@ namespace Training
             // Choose actual kernel depending on number of entries
             if(entries.size() > TFeature::NumThresholdTests)
             {
-                // Good case - we have more entries than threshold tests
+                // Normal case - we have more entries than threshold tests
                 kernel = [&](const TFeature & feature)
                 {
                     this->CheckForBetterSplit(feature);
@@ -459,65 +425,9 @@ namespace Training
             else
             {
                 // Degenerate case - we need not sample but can actually consider each single entry as a possible split point.
-                // The only problem is that the number entries is not known at compile time.
-                // We determine approximately the buffer size needed to hold our statistics - for a realistic number of threshold
-                // tests we exceed the required stack memory at most by a factor of 2.
-                const size_t numEntries = entries.size();
-
-                if(NumTests / 1024 > numEntries)
-                    kernel = [&](const TFeature & feature)
+                kernel = [&](const TFeature & feature)
                 {
-                    this->CheckForBetterSplitDegenerate < NumTests / 1024 > (feature);
-                };
-                else if(NumTests / 512 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 512 > (feature);
-                };
-                else if(NumTests / 256 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 256 > (feature);
-                };
-                else if(NumTests / 128 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 128 > (feature);
-                };
-                else if(NumTests / 64 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 64 > (feature);
-                };
-                else if(NumTests / 32 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 32 > (feature);
-                };
-                else if(NumTests / 16 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 16 > (feature);
-                };
-                else if(NumTests / 8 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 8 > (feature);
-                };
-                else if(NumTests / 4 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 4 > (feature);
-                };
-                else if(NumTests / 2 > numEntries)
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate < NumTests / 2 > (feature);
-                };
-                else
-                    kernel = [&](const TFeature & feature)
-                {
-                    this->CheckForBetterSplitDegenerate<NumTests>(feature);
+                    this->CheckForBetterSplitDegenerate(feature);
                 };
             }
         }
@@ -542,7 +452,6 @@ namespace Training
         typedef typename TFeature::PreProcessType        TPrep;
         typedef RegressionTreeNode<TLabel>               TRegressionTreeNode;
         typedef NodeData<TFeature, TRegressionTreeNode>  TNodeData;
-        typedef tree_node_<TNodeData>                    TTreeNode;
 
     private:
         // Describes one data point, consisting of the location in the image (x,y), the offsets of the factor, the
@@ -562,11 +471,11 @@ namespace Training
         // Holds our data points.
         std::vector<Entry> entries;
 
-        // Pointer to the node this temporary information is associated with.
-        TTreeNode* node;
+        // Index of the node in breadth-first order.
+        int nodeIndex;
 
-        // Index of the node according to breadth-first ordering
-        size_t index;
+        // Iterator pointing to the node in the tree.
+        typename TreeRef<TFeature, TRegressionTreeNode>::iterator_base leaf;
 
         // Offsets of the second factor variable relative to the currently considered variable
         VecCRef<Vector2D<int>> offsets;
@@ -591,7 +500,7 @@ namespace Training
             #pragma omp parallel shared(bestScore, bestFeature)
             {
                 // Thread-local kernel
-                FeatureEvaluationKernel<TFeature, TLabel, TSplitCriterion, Entry, UseExplicitThresholding> threadKernel(entries, criterion, index, offsets);
+                FeatureEvaluationKernel<TFeature, TLabel, TSplitCriterion, Entry, UseExplicitThresholding> threadKernel(entries, criterion, nodeIndex, offsets);
                 const size_t numFeatures = features.size();
                 // for each thread, determine the best feature out of the subset of features assigned to that thread
                 #pragma omp for
@@ -625,7 +534,6 @@ namespace Training
             numRight     = right.NumPoints();
             averageRight = TSplitCriterion::Average(right);
             averageAll   = TSplitCriterion::Average(left + right);
-            //std::cerr << "best score: " << bestScore << std::endl;
             return bestFeature;
         }
 
@@ -680,18 +588,23 @@ namespace Training
                 const auto csize = MPI::Communicator().size();
                 const auto crank = MPI::Communicator().rank();
                 #pragma omp parallel for
-                for( int f = 0; f < features.size(); ++f ) {
+                for( int f = 0; f < features.size(); ++f )
+                {
                     const auto start    = f * BlockSize;
                     const auto end      = start + BlockSize;
                     const auto &feature = features[f];
 
                     // Determine bin boundaries, each process determines a subset of the thresholds to make sure
                     // all training examples spread over the processes are considered
-                    for( size_t t = start; t < end; ++t ) {
-                        if( t % csize == crank && entries.size() > 0 ) {
+                    for( size_t t = start; t < end; ++t )
+                    {
+                        if( t % csize == crank && entries.size() > 0 )
+                        {
                             const auto &entry     = entries[randomIndices[t]];
                             rightBinBoundaries[t] = feature.Response(entry.x, entry.y, entry.prep, offsets);
-                        } else {
+                        }
+                        else
+                        {
                             rightBinBoundaries[t] = 0.0;
                         }
                     }
@@ -713,7 +626,8 @@ namespace Training
 
             // For each feature
             #pragma omp parallel for
-            for( int f = 0; f < features.size(); ++f ) {
+            for( int f = 0; f < features.size(); ++f )
+            {
                 const auto start    = f * BlockSize;
                 const auto end      = start + BlockSize;
                 const auto &feature = features[f];
@@ -745,7 +659,8 @@ namespace Training
 
             // For each feature
             #pragma omp parallel for
-            for( int f = 0; f < features.size(); ++f ) {
+            for( int f = 0; f < features.size(); ++f )
+            {
                 const auto start    = f * BlockSize;
                 const auto end      = start + BlockSize;
 
@@ -763,7 +678,7 @@ namespace Training
                 size_t bestT = 0;
                 for(size_t t = 0; t < BlockSize-1; ++t)
                 {
-                    const auto score = criterion(index, leftUpTo[t], rightUpTo[t + 1]);
+                    const auto score = criterion(nodeIndex, leftUpTo[t], rightUpTo[t + 1]);
 
                     if(score > bestScorePerFeature[f])
                     {
@@ -813,11 +728,13 @@ namespace Training
             // over these and compute the feature responses to obtain the bin boundaries
             // determined by this process.
             std::vector<TValue> myBoundaries(ProcessBlockSize);
-            for( size_t blockIdx = 0; blockIdx < ProcessBlockSize; ++blockIdx ) {
+            for( size_t blockIdx = 0; blockIdx < ProcessBlockSize; ++blockIdx )
+            {
                 // The last block index may be invalid if the overall number of table entries
                 // is not a multiple of the number of processes; if so, simply skip it.
                 const size_t tableIdx = blockIdx * NumProcesses + MyProcessIdx;
-                if( tableIdx >= OverallTableSize ) {
+                if( tableIdx >= OverallTableSize )
+                {
                     myBoundaries[blockIdx] = std::numeric_limits<TValue>::max();
                     break;
                 }
@@ -826,10 +743,14 @@ namespace Training
                 const size_t featureIdx = tableIdx / FeatureBlockSize;
                 const auto &feature     = features[featureIdx];
                 const size_t binIdx     = tableIdx - featureIdx * FeatureBlockSize;
-                if( binIdx != TFeature::NumThresholdTests ) {
-                    if( entries.size() == 0 ) {
+                if( binIdx != TFeature::NumThresholdTests )
+                {
+                    if( entries.size() == 0 )
+                    {
                         myBoundaries[blockIdx]  = 0.0;
-                    } else  {
+                    }
+                    else
+                    {
                         const size_t entryIdx   = uniform(mt);
                         const auto &entry       = entries[entryIdx];
                         myBoundaries[blockIdx]  = feature.Response(entry.x, entry.y, entry.prep, offsets);
@@ -889,24 +810,15 @@ namespace Training
                                                 const std::vector<typename TLabel::ValueType>& rightBinBoundaries,
                                                 std::vector<TSufficientStatistics>& statistics) const
         {
-            //if( MPI::Communicator().rank() == 0 ) {
-            //	std::cerr << "Bin boundaries: " << std::endl;
-            //	for( size_t i = 0; i < rightBinBoundaries.size(); ++i )
-            //		std::cerr << rightBinBoundaries[i] << " ";
-            //	std::cerr << std::endl;
-            //}
-
             // Constants
             const size_t FeatureBlockSize = TFeature::NumThresholdTests + 1;
             const size_t OverallTableSize = FeatureBlockSize * features.size();
-            //std::cerr << "Resizing local sufficient statistics to size " << OverallTableSize << std::endl;
-            //std::cerr << "Right bin boundaries are of size " << rightBinBoundaries.size() << std::endl;
             // For each feature in parallel, determine the sufficient statistics of the data point entries
             // for the thresholds determined in the previous step
             statistics.resize(OverallTableSize);
-            //std::cerr << "Resizing local sufficient statistics to size " << OverallTableSize << std::endl;
             #pragma omp parallel for
-            for( int featureIdx = 0; featureIdx < features.size(); ++featureIdx ) {
+            for( int featureIdx = 0; featureIdx < features.size(); ++featureIdx )
+            {
                 const auto start    = featureIdx * FeatureBlockSize;
                 const auto end      = start + FeatureBlockSize;
                 const auto &feature = features[featureIdx];
@@ -917,15 +829,9 @@ namespace Training
                     const auto hitIdx            = std::upper_bound(&rightBinBoundaries[start], &rightBinBoundaries[end],
                                                    feature.Response(entry.x, entry.y, entry.prep, offsets));
                     const auto tableIdx          = std::distance(&rightBinBoundaries[0], hitIdx);
-                    if( tableIdx >= OverallTableSize )
-                    {
-                        //std::cerr << "tableIdx " << tableIdx << std::endl;
-                        //std::cerr << "feature response: " << feature.Response(entry.x, entry.y, entry.prep, offsets) << std::endl;
-                    }
                     statistics[tableIdx]        += entry.label;
                 });
             }
-            //std::cerr << "Done accumulating sufficient statistics" << std::endl;
         }
 
         template<typename TSplitCriterion>
@@ -953,7 +859,8 @@ namespace Training
             std::vector<TSufficientStatistics> leftStatistics(rightBinBoundaries.size()),
                 rightStatistics(rightBinBoundaries.size());
             #pragma omp parallel for
-            for( int featureIdx = 0; featureIdx < features.size(); ++featureIdx ) {
+            for( int featureIdx = 0; featureIdx < features.size(); ++featureIdx )
+            {
                 const auto start    = featureIdx * FeatureBlockSize;
                 const auto end      = start + FeatureBlockSize;
 
@@ -968,10 +875,11 @@ namespace Training
 
                 // For each threshold, determine the score achieved by the (feature, threshold pair) and
                 // store the statistics of the points ending up in the left and right branch for latter use
-                for(size_t t = 0; t < FeatureBlockSize-1; ++t) {
+                for(size_t t = 0; t < FeatureBlockSize-1; ++t)
+                {
                     leftStatistics [start + t] = leftUpTo[t];
                     rightStatistics[start + t] = rightUpTo[t + 1];
-                    allScores      [start + t] = criterion(index, leftUpTo[t], rightUpTo[t + 1]);
+                    allScores      [start + t] = criterion(nodeIndex, leftUpTo[t], rightUpTo[t + 1]);
                 }
                 allScores[end-1] = -std::numeric_limits<TValue>::max();
             }
@@ -988,17 +896,11 @@ namespace Training
             locallyBestTableIndices.resize(NumProcesses * MPI_N_BEST);
             boost::mpi::all_gather(MPI::Communicator(), &allIndices[0], MPI_N_BEST, &locallyBestTableIndices[0]);
 
-#if 0
-            for( auto it = allIndices.begin(); it != allIndices.begin() + MPI_N_BEST; ++it ) {
-                std::cerr << allScores[*it] << " ";
-            }
-            std::cerr << std::endl;
-#endif
-
             // And store the statistics belonging to these indices
             locallyBestLeftStatistics.resize(locallyBestTableIndices.size());
             locallyBestRightStatistics.resize(locallyBestTableIndices.size());
-            for( size_t idx = 0; idx < locallyBestTableIndices.size(); ++idx ) {
+            for( size_t idx = 0; idx < locallyBestTableIndices.size(); ++idx )
+            {
                 locallyBestLeftStatistics[idx]  = leftStatistics[locallyBestTableIndices[idx]];
                 locallyBestRightStatistics[idx] = rightStatistics[locallyBestTableIndices[idx]];
             }
@@ -1028,7 +930,6 @@ namespace Training
 
             //const auto t1 = GetTickCount64();
             boost::mpi::all_reduce(MPI::Communicator(), &localBuffer[0], localBuffer.size(), &globalBuffer[0], std::plus<float>());
-            //std::cerr << "AllReduce of " << (localBuffer.size()*sizeof(float)/1024) << "MB took " << ((GetTickCount64() - t1)/1000) << "s." << std::endl;
 
             auto inptr = Criteria::DeserializeStatistics(&globalBuffer[0], locallyBestLeftStatistics);
             Criteria::DeserializeStatistics(inptr, locallyBestRightStatistics);
@@ -1037,7 +938,7 @@ namespace Training
             std::vector<TValue> globalScores(locallyBestLeftStatistics.size());
             #pragma omp parallel for
             for( int idx = 0; idx < globalScores.size(); ++idx )
-                globalScores[idx] = criterion(index, locallyBestLeftStatistics[idx], locallyBestRightStatistics[idx]);
+                globalScores[idx] = criterion(nodeIndex, locallyBestLeftStatistics[idx], locallyBestRightStatistics[idx]);
 
             const auto bestIndex = std::distance(globalScores.begin(),
                                                  std::max_element(globalScores.begin(), globalScores.end()));
@@ -1060,7 +961,6 @@ namespace Training
                                    size_t &numRight, TLabel& averageRight,
                                    TLabel& averageAll, typename TSplitCriterion::TValue& bestScore) const
         {
-//			std::cerr << "Entering BestSplitNBestMPI" << std::endl;
             // Typedefs
             typedef typename TLabel::ValueType TValue;
             typedef typename TSplitCriterion::SufficientStatistics TSufficientStatistics;
@@ -1071,12 +971,10 @@ namespace Training
             // Determine bin boundaries
             std::vector<TValue> rightBinBoundaries;
             DetermineBinBoundaries(features, rightBinBoundaries);
-//			std::cerr << "Determined bin boundaries" << std::endl;
 
             // Determine the sufficient statistics for this process
             std::vector<TSufficientStatistics> statistics;
             DetermineLocalSufficientStatistics(features, rightBinBoundaries, statistics);
-//			std::cerr << "Determined local sufficient statistics" << std::endl;
 
             // For each process, find the MPI_N_BEST locally best (feature, threshold) table indices,
             // recording the statistics of the left and right banches for latter use
@@ -1084,13 +982,11 @@ namespace Training
             std::vector<size_t> locallyBestTableIndices;
             DetermineLocallyBestFeatures(features, criterion, statistics, rightBinBoundaries,
                                          locallyBestLeftStatistics, locallyBestRightStatistics, locallyBestTableIndices);
-//			std::cerr << "Determined locally best features" << std::endl;
 
             // Now, from these locally best (feature, threshold) table indices, find the one that is globally the best
             const auto bestTableIdx = DetermineGloballyBestIndex(features, criterion,
-                                      locallyBestLeftStatistics, locallyBestRightStatistics,	locallyBestTableIndices,
+                                      locallyBestLeftStatistics, locallyBestRightStatistics,    locallyBestTableIndices,
                                       numLeft, averageLeft, numRight, averageRight, averageAll, bestScore);
-            //std::cerr << "Determined globally best index" << std::endl;
 
             // And return the feature corresponding to the best (feature, threshold) table index
             return features[bestTableIdx/FeatureBlockSize].WithThreshold(rightBinBoundaries[bestTableIdx]);
@@ -1100,7 +996,8 @@ namespace Training
 
     public:
         // Constructs the set of data points. Needs a pointer to the node the collected information applies to.
-        DataPoints(TTreeNode* n, size_t idx, const VecCRef<Vector2D<int>>& off) : node(n), index(idx), offsets(off)
+        DataPoints(int n, typename TreeRef<TFeature, TRegressionTreeNode>::iterator_base it, const VecCRef<Vector2D<int>>& off)
+            : nodeIndex(n), leaf(it), offsets(off)
         {
         }
 
@@ -1115,10 +1012,9 @@ namespace Training
             return entries.size();
         }
 
-        size_t Depth() const
+        int Depth() const
         {
-            typename TreeRef<TFeature, RegressionTreeNode<TLabel>>::iterator_base leaf(node);
-            return TreeRef<TFeature, RegressionTreeNode<TLabel>>::depth(leaf);
+            return TreeRef<TFeature, TRegressionTreeNode>::Depth(leaf);
         }
 
         // Check if the leaf is pure
@@ -1141,22 +1037,6 @@ namespace Training
             return criterion.IsPure(all);
         }
 
-#ifdef DUMP_EACH_LEVEL
-        void DumpPoints(std::ostream& out) const
-        {
-            out << "# node at level " << (Depth() + 1) << ", " << entries.size() << " points." << std::endl;
-            TreeRef<TFeature, RegressionTreeNode<TLabel>>::iterator_base leaf(node);
-
-            if(Depth() != 0)
-                out << "# parent feature: " << node->parent->data.feature;
-
-            std::for_each(entries.begin(), entries.end(), [&](const Entry & entry)
-            {
-                out << entry.label << std::endl;
-            });
-        }
-#endif
-
         // Splits the associated node into two children according to the feature that gives the largest gain according
         // to some criterion. If no useful split is found, this step is skipped. The associated node will be marked
         // as 'trained', such that it won't be considered for splitting again in one of the rounds to come.
@@ -1166,56 +1046,38 @@ namespace Training
         bool AddSplit(const std::vector<TFeature>& features, const TreeRef<TFeature, TRegressionTreeNode>& tree,
                       const TSplitCriterion& criterion, typename TSplitCriterion::TValue& bestScore)
         {
-            typename TreeRef<TFeature, RegressionTreeNode<TLabel>>::iterator_base leaf(node);
-#ifdef DUMP_EACH_LEVEL
-            DumpPoints(dumpStream);
+            // Mark this leaf as trained, so we won't consider splitting it again in upcoming iterations.
+            leaf->data.trained = true;
 
-            if(! leaf->data.trained)
+            // Check if the points that fall into our node are pure; if so, we will not split the node.
+            if(IsPure(criterion, bestScore))
             {
-#endif
-                // Mark this leaf as trained, so we won't consider splitting it again in upcoming iterations.
-                leaf->data.trained = true;
-
-                // Check if the points that fall into our node are pure; if so, we will not split the node.
-                if(IsPure(criterion, bestScore))
-                {
-                    TMonitor::Report("INFO: Node is pure, will not split.\n");
-                    return false;
-                }
-
-                // Determine the best split according to our criterion
-                TLabel averageLeft, averageRight, averageAll;
-                size_t numLeft, numRight;
-                leaf->feature = BestSplit(features, criterion, numLeft, averageLeft, numRight, averageRight, averageAll, bestScore);
-                //std::cerr << "left: " << numLeft << " points" << std::endl;
-                //std::cerr << "right: " << numRight << " points" << std::endl;
-                std::cerr << std::endl << leaf->feature << std::endl;
-
-                // If we are the root node, set the average (has not been set by parent, because there is none)
-                if(tree.size() == 1)
-                    leaf->data.average = averageAll;
-
-#ifndef TRAINING_TOLERATE_DEGENERATE_SPLITS
-                // Check for degenerate split
-                if(numLeft == 0 || numRight == 0)
-                {
-                    TMonitor::Report("WARN: Unable to find split for set of %u points\n", (numLeft + numRight));
-                    return false;
-                }
-#endif
-
-                // Split the leaf and pass the children the number of points that went into them and the average of these points
-                tree.append_child(leaf, TNodeData(TFeature(), TRegressionTreeNode(numLeft, averageLeft)));
-                tree.append_child(leaf, TNodeData(TFeature(), TRegressionTreeNode(numRight, averageRight)));
-                return true;
-#ifdef DUMP_EACH_LEVEL
-            }
-            else
-            {
+                TMonitor::Report("INFO: Node is pure, will not split.\n");
                 return false;
             }
 
+            // Determine the best split according to our criterion
+            TLabel averageLeft, averageRight, averageAll;
+            size_t numLeft, numRight;
+            leaf->feature = BestSplit(features, criterion, numLeft, averageLeft, numRight, averageRight, averageAll, bestScore);
+
+            // If we are the root node, set the average (has not been set by parent, because there is none)
+            if(tree.size() == 1)
+                leaf->data.average = averageAll;
+
+#ifndef TRAINING_TOLERATE_DEGENERATE_SPLITS
+            // Check for degenerate split
+            if(numLeft == 0 || numRight == 0)
+            {
+                TMonitor::Report("WARN: Unable to find split for set of %u points\n", (numLeft + numRight));
+                return false;
+            }
 #endif
+
+            // Split the leaf and pass the children the number of points that went into them and the average of these points
+            tree.append_child(leaf, TNodeData(TFeature(), TRegressionTreeNode(numLeft, averageLeft)));
+            tree.append_child(leaf, TNodeData(TFeature(), TRegressionTreeNode(numRight, averageRight)));
+            return true;
         }
     };
 
@@ -1269,16 +1131,10 @@ namespace Training
         treeTable.template Fill<TRegressionTreeNode>(tree, [&](const typename TreeCRef<TFeature, TRegressionTreeNode>::iterator_base & it)->TTableStore
         {
             const size_t nDepth = TreeRef<TFeature, TRegressionTreeNode>::depth(it);
-#ifndef DUMP_EACH_LEVEL
-            if(it->data.trained == false && it.number_of_children() == 0 &&
+            if( it->data.trained == false && it.number_of_children() == 0 &&
             (nDepth+1) < nDepthLevels && it->data.numDataPoints >= nMinDataPointsForSplitConsideration)
             {
-#else
-
-            if(it.number_of_children() == 0 && nDepth < nDepthLevels - 1)
-            {
-#endif
-                selectedNodes.push_back(TTableStore(new TTableStoreValue(it.node, index++, pointSampler.Offsets())));
+                selectedNodes.push_back(TTableStore(new TTableStoreValue(index++, it, pointSampler.Offsets())));
                 return selectedNodes.back();
             }
             else {
@@ -1320,24 +1176,12 @@ namespace Training
         TMonitor::Display("  > Processing leaves: ");
         TValue score = TValue();
 
-        for(size_t n = 0;
-
-                n < selectedNodes.size();
-                ++n)
+        for(size_t n = 0; n < selectedNodes.size(); ++n)
         {
             TMonitor::Display(".");
             TValue nscore;
-#ifdef DUMP_EACH_LEVEL
-            std::ostringstream path;
-            path << DUMP_EACH_LEVEL << "uptolevel" << currentLevel << "_node" << (n + 1) << ".txt";
-            dumpStream.open(path.str());
-#endif
-
             selectedNodes[n]->AddSplit(features, tree, criterion, nscore);
             score += nscore;
-#ifdef DUMP_EACH_LEVEL
-            dumpStream.close();
-#endif
         }
         TMonitor::Display(" done.\n");
 
@@ -1368,9 +1212,6 @@ namespace Training
 
         while(level < (unsigned) nDepthLevels)
         {
-#ifdef DUMP_EACH_LEVEL
-            currentLevel = level;
-#endif
             // Sample features
             std::vector<typename TFeatureSampler::TFeature> features(nFeatureCount);
 
@@ -1574,7 +1415,7 @@ namespace Training
                         for(int x = processRect.left; x < processRect.right; ++x)
                         {
                             const TLabel label = TLabel(groundTruthImage(x + offsets[0].x, y + offsets[0].y),
-                            groundTruthImage(x + offsets[1].x, y + offsets[1].y));
+                                                        groundTruthImage(x + offsets[1].x, y + offsets[1].y));
 
                             if(addOp(label, x, y, prep))
                                 ++numPoints;
@@ -1649,7 +1490,7 @@ namespace Training
                         if(processRect.PtInRect(point))
                         {
                             const TLabel label = TLabel(groundTruthImage(point.x + offsets[0].x, point.y + offsets[0].y),
-                            groundTruthImage(point.x + offsets[1].x, point.y + offsets[1].y));
+                                                        groundTruthImage(point.x + offsets[1].x, point.y + offsets[1].y));
 
                             if(addOp(label, point.x, point.y, prep))
                                 ++numPoints;
@@ -1937,4 +1778,4 @@ namespace Training
 } // namespace Training
 
 
-#endif // _H_TRAINING_H
+#endif // H_RTF_TRAINING_H

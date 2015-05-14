@@ -1,12 +1,16 @@
-// File:   Priors.h
-// Author: t-jejan
-//
-// Implements priors over the vector and matrix coefficients of Weights instances.
-// The priors to be used in your models must be specified as template parameters
-// of your model traits class, see Types.h for details.
-//
-#ifndef _H_PRIORS_H_
-#define _H_PRIORS_H_
+/* This file is part of the "Regression Tree Fields" (RTF) source code distribution,
+ * obtained from http://research.microsoft.com/downloads.
+ * It is provided to you under the terms of the Microsoft Research License Agreement
+ * (MSR-LA). Please see License.txt for details.
+ *
+ *
+ * File: Priors.h
+ * Implements priors over the vector and matrix coefficients of Weights instances.
+ *
+ */
+
+#ifndef H_RTF_PRIORS_H
+#define H_RTF_PRIORS_H
 
 #include "Types.h"
 #include "Utility.h"
@@ -49,7 +53,7 @@ namespace Priors
         {
             TMatrix NablaWq;
             auto objectiveContribution = Eval(quadraticConstant, w.Wq, NablaWq);
-            w.Gq += NablaWq;
+            w.GetGq() += NablaWq;
             return objectiveContribution;
         }
 
@@ -96,7 +100,7 @@ namespace Priors
         {
             TMatrix NablaWq;
             auto objectiveContribution = Eval(quadraticConstant, w.Wq, NablaWq);
-            w.Gq += NablaWq;
+            w.GetGq() += NablaWq;
             return objectiveContribution;
         }
 
@@ -131,7 +135,7 @@ namespace Priors
         {
             TMatrix NablaWq;
             auto objectiveContribution = Eval(quadraticConstant, w.Wq, NablaWq);
-            w.Gq += NablaWq;
+            w.GetGq() += NablaWq;
             return objectiveContribution;
         }
 
@@ -158,12 +162,10 @@ namespace Priors
 
         static TValue ComputeObjectiveAddGradient(TValue linearC, TValue quadraticC, Compute::Weights<TValue, VarDim, BasisDim>& w)
         {
-            w.Gl += linearC    * w.Wl;
-            w.Gq += quadraticC * w.Wq;
+            w.GetGl() += linearC    * w.Wl;
+            w.GetGq() += quadraticC * w.Wq;
 
             const auto f = TValue(0.5) * (linearC * w.Wl.squaredNorm() + quadraticC * w.Wq.squaredNorm());
-            //std::cerr << "contribution by prior: " << f << "(constants: " << linearC << " / " << quadraticC << ")" << std::endl;
-            //Sleep(1000);
             return f;
         }
 
@@ -199,8 +201,8 @@ namespace Priors
 
         static TValue ComputeObjectiveAddGradient(TValue linearC, TValue quadraticC, Compute::Weights<TValue, VarDim, BasisDim>& w)
         {
-            w.Gl +=   linearC    * w.Wl;
-            w.Gq += - quadraticC * TMatrix::Identity();
+            w.GetGl() +=   linearC    * w.Wl;
+            w.GetGq() += - quadraticC * TMatrix::Identity();
             return (TValue(0.5) * linearC * w.Wl.squaredNorm()) - (quadraticC * w.Wq.trace());
         }
 
@@ -239,4 +241,4 @@ namespace Priors
     };
 }
 
-#endif // _H_PRIORS_H_
+#endif // H_RTF_PRIORS_H
