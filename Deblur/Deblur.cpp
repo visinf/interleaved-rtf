@@ -5,7 +5,6 @@ namespace Deblurring
 #define TYPE_BLUR_KERNEL_OPERATOR -1
 #define INSTANTIATE_CUSTOM_OPERATOR(typeid) new Deblurring::BlurKernelOperator<TFeature, TUnaryGroundLabel>()
 
-#define USE_FFTWD
 #define PARALLEL_SYSMATRIX_ALLOCATION
 
 #include "RTF/Loss.h"
@@ -15,6 +14,7 @@ namespace Deblurring
 #include "Dataset.h"
 #include "Feature.h"
 #include "Operator.h"
+#include <itkFFTWGlobalConfiguration.h>
 
 typedef Deblurring::Dataset Dataset_t;
 typedef Deblurring::FeatureSampler FeatureSampler_t;

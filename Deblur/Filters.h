@@ -16,10 +16,6 @@
 #include <itkAccumulateImageFilter.h>
 #include <itkSubtractImageFilter.h>
 
-#if defined(USE_FFTWF) || defined(USE_FFTWD)
-#include <itkFFTWGlobalConfiguration.h>
-#endif
-
 typedef Monitor::DefaultMonitor MyMonitor;
 typedef double PixelType;
 typedef itk::Image<PixelType, 2> ImageType;
@@ -35,6 +31,9 @@ typedef itk::MultiplyImageFilter <ImageType, ImageType > MultiplyImageFilterType
 typedef itk::BinaryThresholdImageFilter <ImageType, ImageType > BinaryThresholdImageFilterType;
 typedef itk::AccumulateImageFilter <ImageType, ImageType> AccumulateImageFilterType;
 typedef itk::ImageRegionIterator< ImageType > IteratorType;
+typedef itk::DivideImageFilter<ImageType, ImageType, ImageType> DivideImageFilterType;
+typedef itk::SubtractImageFilter <ImageType, ImageType > SubtractImageFilterType;
+
 
 void ShiftIndex(ImageType::Pointer& image, int shift0, int shift1)
 {
@@ -386,7 +385,6 @@ ImageType::Pointer GreaterIndex(const ImageType::Pointer& image, const double va
 
 ImageType::Pointer AddScal(const ImageType::Pointer& image, const double scalar)
 {
-    typedef itk::AddImageFilter <ImageType, ImageType > AddImageFilterType;
     AddImageFilterType::Pointer addFilter = AddImageFilterType::New ();
     addFilter->SetInput1(image);
     addFilter->SetConstant2(scalar);
@@ -418,7 +416,6 @@ ImageType::Pointer CwiseMax(const ImageType::Pointer& image, const double value)
 
 ImageType::Pointer DivImgs(const ImageType::Pointer& image1, const ImageType::Pointer& image2)
 {
-    typedef itk::DivideImageFilter<ImageType, ImageType, ImageType> DivideImageFilterType;
     DivideImageFilterType::Pointer divideImageFilter = DivideImageFilterType::New();
     divideImageFilter->SetInput1(image1);
     divideImageFilter->SetInput2(image2);
@@ -428,7 +425,6 @@ ImageType::Pointer DivImgs(const ImageType::Pointer& image1, const ImageType::Po
 
 ImageType::Pointer SubImgs(const ImageType::Pointer& image1, const ImageType::Pointer& image2)
 {
-    typedef itk::SubtractImageFilter <ImageType, ImageType > SubtractImageFilterType;
     SubtractImageFilterType::Pointer subFilter = SubtractImageFilterType::New ();
     subFilter->SetInput1(image1);
     subFilter->SetInput2(image2);
@@ -461,7 +457,6 @@ double Norm(const ImageType::Pointer& image)
 
 ImageType::Pointer DivScal(const ImageType::Pointer& image, const double scalar)
 {
-    typedef itk::DivideImageFilter<ImageType, ImageType, ImageType> DivideImageFilterType;
     DivideImageFilterType::Pointer divideImageFilter = DivideImageFilterType::New();
     divideImageFilter->SetInput(image);
     divideImageFilter->SetConstant(scalar);
