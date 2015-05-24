@@ -6,13 +6,12 @@ Research. Please find included the license terms and conditions.
 Getting started
 ===============
 
-Deblur/Deblur.cpp operates on the data in the demo folder. Please set
-the path variable in Deblur.cpp to the directory containing the demo
-folder. The demo/images folder contains the first benchmark image of
-Levin et al. [5], the rest is available online. All initial kernel
-estimates used for the results reported in the paper are located in
-demo/initial. These blurs were estimated using the method of Xu and
-Jia [6].
+Compile Deblur/Deblur.cpp so that the binary resides in build/Deblur.
+Running it will write output to demo/predictions/<Cascade_Depth>. The
+demo/images folder contains as input the first benchmark image of
+Levin et al. [5], the rest is available online. Input image names must
+be listed in demo/test.txt. The initial kernel estimates used for the
+results reported in the paper are located in demo/initial.
 
 To test on different data, place the blurry image in the demo/images
 folder and the initial blur estimate in demo/initial following the
@@ -54,6 +53,3 @@ Convex QP Relaxations for Structured Prediction. In ICML 2013.
 [5] Anat Levin, Yair Weiss, Fredo Durand, and William
 T. Freeman. Understanding and evaluating blind deconvolution
 algorithms. In CVPR 2009.
-
-[6] Li Xu and Jiaya Jia. Two-phase kernel estimation for robust motion
-deblurring. In ECCV 2010.

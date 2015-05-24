@@ -32,7 +32,7 @@ typedef Stacked::RTF<FeatureSampler_t,
 		     WEIGHTS_AND_BASIS_PRECOMPUTED> RTF_t;
 
 // set path to base directory
-boost::filesystem::path path = "PLEASE_SET_THIS_PATH";
+boost::filesystem::path path = "../../";
 
 int main ()
 {

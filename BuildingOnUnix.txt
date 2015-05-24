@@ -8,7 +8,7 @@ In addition, the following software packages are required:
 
 - Boost >= 1.49 (system, filesystem, and optionally mpi)
 - Eigen3 >= 3.1
-- ITK >= 4.3
+- ITK >= 4.3 (with FFTW support)
 - Any compliant MPI implementation (optional)
 
 Again, packages for these libraries should come with your
